@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:thai_idcard_reader_flutter/thai_idcard_reader_flutter.dart';
-import 'package:thai_idcard_reader_flutter/common.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'dart:typed_data';
 
