@@ -126,7 +126,7 @@ class _MyAppState extends State<MyApp> {
             children: [
               if (_device != null)
                 UsbDeviceCard(
-                  device: _device,
+                  device: _device!,
                 ),
               if (_card != null) Text(_card.toString()),
               if (_device == null || !_device!.isAttached) ...[
@@ -230,6 +230,12 @@ class _MyAppState extends State<MyApp> {
       ),
     );
   }
+
+  @override
+  void dispose() {
+    subscription?.cancel();
+    super.dispose();
+  }
 }
 
 class EmptyHeader extends StatelessWidget {
@@ -268,10 +274,10 @@ class EmptyHeader extends StatelessWidget {
 }
 
 class UsbDeviceCard extends StatelessWidget {
-  final dynamic device;
+  final UsbDevice device;
   const UsbDeviceCard({
     Key? key,
-    this.device,
+    required this.device,
   }) : super(key: key);
 
   @override
@@ -284,8 +290,8 @@ class UsbDeviceCard extends StatelessWidget {
             Icons.usb,
             size: 32,
           ),
-          title: Text('${device!.manufacturerName} ${device!.productName}'),
-          subtitle: Text(device!.identifier ?? ''),
+          title: Text('${device.manufacturerName} ${device.productName}'),
+          subtitle: Text("${device.identifier ?? ''}, ${device.vendorId ?? ''}, ${device.productId ?? ''}"),
           trailing: Container(
             padding: const EdgeInsets.all(8),
             color: device!.hasPermission ? Colors.green : Colors.grey,

@@ -9,7 +9,9 @@ import android.hardware.usb.*
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
+import android.util.Log
 import androidx.annotation.NonNull
+import androidx.core.content.ContextCompat
 import com.acs.smartcard.Reader
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
@@ -27,7 +29,7 @@ const val ACTION_USB_DETACHED = "android.hardware.usb.action.USB_DEVICE_DETACHED
 const val ACTION_USB_GRANTED = "android.hardware.usb.action.EXTRA_PERMISSION_GRANTED"
 
 private fun pendingPermissionIntent(context: Context) =
-    PendingIntent.getBroadcast(context, 0, Intent(ACTION_USB_PERMISSION), PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    PendingIntent.getBroadcast(context, 0, Intent(ACTION_USB_PERMISSION), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
 /** ThaiIdcardReaderFlutterPlugin */
 class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventChannel.StreamHandler {
@@ -54,15 +56,17 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
           val action = intent.action
           val reader = mReader
           var dev: HashMap<String, Any?>?
-          device = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
+          device = device ?: intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
           if (action == ACTION_USB_ATTACHED) {
+            Log.e("ThaiIdcard", "ACTION_USB_ATTACHED")
             if (usbManager!!.hasPermission(device)) {
+              Log.e("ThaiIdcard", "ACTION_USB_ATTACHED/hasPermission")
               dev = serializeDevice(device)
               dev["isAttached"] = true
               dev["hasPermission"] = true
               eventSink?.success(dev)
             } else {
-              context.registerReceiver(receiver, IntentFilter(ACTION_USB_PERMISSION))
+              Log.e("ThaiIdcard", "ACTION_USB_ATTACHED/noPermission")
               usbManager?.requestPermission(device, pendingPermissionIntent(context))
               dev = serializeDevice(device)
               dev["isAttached"] = true
@@ -70,12 +74,14 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
               eventSink?.success(dev)
             }
           } else if (action == ACTION_USB_DETACHED) {
+            Log.e("ThaiIdcard", "ACTION_USB_DETACHED")
             reader?.close()
             dev = serializeDevice(device)
             dev["isAttached"] = false
             dev["hasPermission"] = false
             eventSink?.success(dev)
           } else if (action == ACTION_USB_PERMISSION) {
+            Log.e("ThaiIdcard", "ACTION_USB_PERMISSION")
             if (usbManager!!.hasPermission(device)) {
               dev = serializeDevice(device)
               reader?.open(device)
@@ -106,9 +112,16 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
 
   override fun onListen(arguments: Any?, eventSink: EventChannel.EventSink?) {
     this.eventSink = eventSink
+    usbManager?.deviceList?.values?.forEach { device ->
+      if (mReader?.isSupported(device) ?: false) {
+        this.device = device
+        usbManager?.requestPermission(device, pendingPermissionIntent(applicationContext!!))
+      }
+    }
   }
 
   override fun onCancel(arguments: Any?) {
+    mReader?.close()
     eventSink = null
     usbEventChannel = null
   }
@@ -124,41 +137,44 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
     mReader = Reader(usbManager)
 
     val usbEventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "usb_stream_channel")
-    usbEventChannel?.setStreamHandler(this)
+    usbEventChannel.setStreamHandler(this)
 
     val readerEventChannel =
         EventChannel(flutterPluginBinding.binaryMessenger, "reader_stream_channel")
     readerStreamHandler = ReaderStream()
-    readerEventChannel?.setStreamHandler(readerStreamHandler)
+    readerEventChannel.setStreamHandler(readerStreamHandler)
 
-    var filter = IntentFilter(ACTION_USB_PERMISSION)
+    val filter = IntentFilter(ACTION_USB_PERMISSION)
     filter.addAction(ACTION_USB_DETACHED)
     filter.addAction(ACTION_USB_ATTACHED)
-    applicationContext!!.registerReceiver(usbReceiver, filter)
+    ContextCompat.registerReceiver(
+      applicationContext!!,
+      usbReceiver,
+      filter,
+      ContextCompat.RECEIVER_EXPORTED
+    )
+
+    usbManager?.deviceList?.values?.forEach { device ->
+      if (mReader?.isSupported(device) ?: false) {
+        this.device = device
+        mReader?.close()
+        usbManager?.requestPermission(device, pendingPermissionIntent(applicationContext!!))
+      }
+    }
   }
 
   override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
+    applicationContext?.unregisterReceiver(usbReceiver)
     channel.setMethodCallHandler(null)
-    usbManager = null
+    mReader?.close()
     mReader = null
+    usbManager = null
     applicationContext = null
     device = null
     usbEventChannel?.setStreamHandler(null)
     readerEventChannel?.setStreamHandler(null)
     readerStreamHandler = null
   }
-
-  private val receiver =
-      object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-          context.unregisterReceiver(this)
-          val device = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
-          val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
-          if (!granted) {
-            println("Permission denied: ${device?.deviceName}")
-          }
-        }
-      }
 
   override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
     when (call.method) {
@@ -196,7 +212,6 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
         val identifier = call.argument<String>("identifier")
         val device = manager.deviceList[identifier]
         if (!manager.hasPermission(device)) {
-          context.registerReceiver(receiver, IntentFilter(ACTION_USB_PERMISSION))
           manager.requestPermission(device, pendingPermissionIntent(context))
         }
         result.success(null)

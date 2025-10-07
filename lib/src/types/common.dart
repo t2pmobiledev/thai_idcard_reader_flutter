@@ -158,7 +158,8 @@ class ThaiIDCard {
         final yearTH = dtx.substring(0, 4);
         final month = dtx.substring(4, 6);
         final date = dtx.substring(6, 8);
-        final yearEN = int.parse(yearTH) - 543;
+        final removeYear = (date == "99" && month == "99") ? 0 : 543;
+        final yearEN = int.parse(yearTH) - removeYear;
         return '$yearEN-$month-$date';
       } catch (e) {
         return dt.toString() + e.toString();
