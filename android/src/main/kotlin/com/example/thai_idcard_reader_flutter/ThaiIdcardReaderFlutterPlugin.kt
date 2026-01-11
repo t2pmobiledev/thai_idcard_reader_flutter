@@ -56,42 +56,50 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
           val action = intent.action
           val reader = mReader
           var dev: HashMap<String, Any?>?
-          device = device ?: intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
-          if (action == ACTION_USB_ATTACHED) {
-            Log.e("ThaiIdcard", "ACTION_USB_ATTACHED")
-            if (usbManager!!.hasPermission(device)) {
-              Log.e("ThaiIdcard", "ACTION_USB_ATTACHED/hasPermission")
+          try {
+            device = device ?: intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+            if (action == ACTION_USB_ATTACHED) {
+              Log.e("ThaiIdcard", "ACTION_USB_ATTACHED")
+              if (usbManager!!.hasPermission(device)) {
+                Log.e("ThaiIdcard", "ACTION_USB_ATTACHED/hasPermission")
+                dev = serializeDevice(device)
+                dev["isAttached"] = true
+                dev["hasPermission"] = true
+                eventSink?.success(dev)
+              } else {
+                Log.e("ThaiIdcard", "ACTION_USB_ATTACHED/noPermission")
+                usbManager?.requestPermission(device, pendingPermissionIntent(context))
+                dev = serializeDevice(device)
+                dev["isAttached"] = true
+                dev["hasPermission"] = false
+                eventSink?.success(dev)
+              }
+            } else if (action == ACTION_USB_DETACHED) {
+              Log.e("ThaiIdcard", "ACTION_USB_DETACHED")
+              reader?.close()
               dev = serializeDevice(device)
-              dev["isAttached"] = true
-              dev["hasPermission"] = true
-              eventSink?.success(dev)
-            } else {
-              Log.e("ThaiIdcard", "ACTION_USB_ATTACHED/noPermission")
-              usbManager?.requestPermission(device, pendingPermissionIntent(context))
-              dev = serializeDevice(device)
-              dev["isAttached"] = true
+              dev["isAttached"] = false
               dev["hasPermission"] = false
               eventSink?.success(dev)
+            } else if (action == ACTION_USB_PERMISSION) {
+              Log.e("ThaiIdcard", "ACTION_USB_PERMISSION")
+              if (usbManager!!.hasPermission(device)) {
+                dev = serializeDevice(device)
+                reader?.open(device)
+                dev["isAttached"] = true
+                dev["hasPermission"] = true
+                eventSink?.success(dev)
+                if (reader!!.isSupported(device)) {
+                  readerStreamHandler?.setReader(reader)
+                }
+              }
             }
-          } else if (action == ACTION_USB_DETACHED) {
-            Log.e("ThaiIdcard", "ACTION_USB_DETACHED")
+          } catch (e: Exception) {
             reader?.close()
             dev = serializeDevice(device)
             dev["isAttached"] = false
             dev["hasPermission"] = false
             eventSink?.success(dev)
-          } else if (action == ACTION_USB_PERMISSION) {
-            Log.e("ThaiIdcard", "ACTION_USB_PERMISSION")
-            if (usbManager!!.hasPermission(device)) {
-              dev = serializeDevice(device)
-              reader?.open(device)
-              dev["isAttached"] = true
-              dev["hasPermission"] = true
-              eventSink?.success(dev)
-              if (reader!!.isSupported(device)) {
-                readerStreamHandler?.setReader(reader)
-              }
-            }
           }
         }
       }
