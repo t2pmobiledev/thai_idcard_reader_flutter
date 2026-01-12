@@ -49,10 +49,13 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
   private var device: UsbDevice? = null
 
   private var readerStreamHandler: ReaderStream? = null
+  private var isReceiving: Boolean = false
 
   private val usbReceiver: BroadcastReceiver =
       object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+          if (isReceiving) return
+          isReceiving = true
           val action = intent.action
           val reader = mReader
           var dev: HashMap<String, Any?>?
@@ -100,6 +103,8 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
             dev["isAttached"] = false
             dev["hasPermission"] = false
             eventSink?.success(dev)
+          } finally {
+            isReceiving = false
           }
         }
       }
