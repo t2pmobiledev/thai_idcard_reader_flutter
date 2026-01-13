@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Bitmap
 import android.hardware.usb.*
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
@@ -13,6 +14,8 @@ import android.util.Log
 import androidx.annotation.NonNull
 import androidx.core.content.ContextCompat
 import com.acs.smartcard.Reader
+import com.t2pco.thaiidcard.SmartCardDevice
+import com.t2pco.thaiidcard.ThaiSmartCard
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -22,6 +25,9 @@ import io.flutter.plugin.common.MethodChannel.Result
 import java.nio.charset.*
 import java.util.*
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import kotlin.collections.contains
+import kotlin.concurrent.thread
 
 const val ACTION_USB_PERMISSION = "com.example.thai_idcard_reader_flutter.USB_PERMISSION"
 const val ACTION_USB_ATTACHED = "android.hardware.usb.action.USB_DEVICE_ATTACHED"
@@ -157,27 +163,27 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
     readerStreamHandler = ReaderStream()
     readerEventChannel.setStreamHandler(readerStreamHandler)
 
-    val filter = IntentFilter(ACTION_USB_PERMISSION)
-    filter.addAction(ACTION_USB_DETACHED)
-    filter.addAction(ACTION_USB_ATTACHED)
-    ContextCompat.registerReceiver(
-      applicationContext!!,
-      usbReceiver,
-      filter,
-      ContextCompat.RECEIVER_EXPORTED
-    )
-
-    usbManager?.deviceList?.values?.forEach { device ->
-      if (mReader?.isSupported(device) ?: false) {
-        this.device = device
-        mReader?.close()
-        usbManager?.requestPermission(device, pendingPermissionIntent(applicationContext!!))
-      }
-    }
+//    val filter = IntentFilter(ACTION_USB_PERMISSION)
+//    filter.addAction(ACTION_USB_DETACHED)
+//    filter.addAction(ACTION_USB_ATTACHED)
+//    ContextCompat.registerReceiver(
+//      applicationContext!!,
+//      usbReceiver,
+//      filter,
+//      ContextCompat.RECEIVER_EXPORTED
+//    )
+//
+//    usbManager?.deviceList?.values?.forEach { device ->
+//      if (mReader?.isSupported(device) ?: false) {
+//        this.device = device
+//        mReader?.close()
+//        usbManager?.requestPermission(device, pendingPermissionIntent(applicationContext!!))
+//      }
+//    }
   }
 
   override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
-    applicationContext?.unregisterReceiver(usbReceiver)
+//    applicationContext?.unregisterReceiver(usbReceiver)
     channel.setMethodCallHandler(null)
     mReader?.close()
     mReader = null
@@ -229,7 +235,88 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
         }
         result.success(null)
       }
+      "getInfo" -> {
+        readCardReader(result)
+      }
       else -> result.notImplemented()
+    }
+  }
+
+  private fun readCardReader(result: Result) {
+    try {
+      val device: SmartCardDevice? = SmartCardDevice.getSmartCardDevice(
+        applicationContext!!,
+        "",
+        object : SmartCardDevice.SmartCardDeviceEvent {
+          override fun OnReady(device: SmartCardDevice?) {
+            val thaiSmartCard = ThaiSmartCard(device)
+
+            if (!thaiSmartCard.isInserted) {
+              Log.d("SmartCard","Smart Card not found")
+              val response = HashMap<String, Any>()
+              response.put("code", "001")
+              response.put("message", "Smart Card not found")
+              result.success(JSONObject(response).toString())
+              return
+            }
+
+            thread(start = true) {
+              val info: ThaiSmartCard.PersonalInformation? = thaiSmartCard.getPersonalInformation()
+              if (info == null) {
+                Log.d("SmartCard","Read Smart Card information failed")
+                val response = HashMap<String, Any>()
+                response.put("code", "002")
+                response.put("message", "Read Smart Card information failed")
+                result.success(JSONObject(response).toString())
+                return@thread
+              }
+
+              val personalPic: Bitmap? = thaiSmartCard.getPersonalPicture()
+
+              if (personalPic == null) {
+                Log.d("SmartCard","Read Smart Card personal picture failed")
+                val response = HashMap<String, Any>()
+                response.put("code", "003")
+                response.put("message", "Read Smart Card personal picture failed")
+                result.success(JSONObject(response).toString())
+                return@thread
+              }
+
+              val response = HashMap<String, Any>()
+              response.put("code", "000")
+              response.put("message", "Success")
+              response.put("cid", info.PersonalID)
+              response.put("nameTH", info.NameTH)
+              response.put("nameEN", info.NameEN)
+              response.put("birthdate", info.BirthDate)
+              response.put("gender", info.Gender)
+              response.put("address", info.Address)
+              response.put("cardIssuer", info.Issuer)
+              response.put("issueDate", info.IssueDate)
+              response.put("expireDate", info.ExpireDate)
+              response.put("photo", thaiSmartCard.bytePersonalPicture)
+              result.success(JSONObject(response).toString())
+              Log.d("SmartCard","Read Smart Card Success")
+            }
+          }
+
+          override fun OnDetached(device: SmartCardDevice?) {
+            Log.d("SmartCard","Smart Card is removed")
+          }
+        })
+
+      if (device == null) {
+        val response = HashMap<String, Any>()
+        response.put("code", "004")
+        response.put("message", "Smart Card device not found")
+        result.success(JSONObject(response).toString())
+        return
+      }
+    } catch (e: Exception) {
+      val response = HashMap<String, Any>()
+      response.put("code", "005")
+      response.put("message", "${e.toString()}")
+      result.success(JSONObject(response).toString())
     }
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'types/common.dart';
 import 'dart:core';
@@ -26,9 +28,10 @@ class ThaiIdcardReaderFlutter with ThaiIDType {
   }
 
   static Future<ThaiIDCard> read({List<String> only = const []}) async {
-    final String res = only.isNotEmpty
-        ? await _channel.invokeMethod('read', {'selected': only})
-        : await _channel.invokeMethod('readAll');
+    // final String res = only.isNotEmpty
+    //     ? await _channel.invokeMethod('read', {'selected': only})
+    //     : await _channel.invokeMethod('readAll');
+    final String res = await _channel.invokeMethod('getInfo').timeout(const Duration(seconds: 30));
     return ThaiIDCard.fromJson(res);
   }
 }

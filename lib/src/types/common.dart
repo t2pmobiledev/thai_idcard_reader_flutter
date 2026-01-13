@@ -104,6 +104,8 @@ class ThaiIDType {
 }
 
 class ThaiIDCard {
+  String? code;
+  String? message;
   String? cid;
   String? titleTH;
   String? firstnameTH;
@@ -118,6 +120,8 @@ class ThaiIDCard {
   int? gender;
   List<int> photo;
   ThaiIDCard({
+    this.code,
+    this.message,
     this.cid,
     this.titleTH,
     this.firstnameTH,
@@ -167,25 +171,42 @@ class ThaiIDCard {
     }
 
     String removeWhitespaceAddr(str) {
-      final rmSpaces = str.split('').where((ea) => ea != ' ').toList().join('');
-      final rmHashtags =
-          rmSpaces.split('#').where((ea) => ea != '').toList().join(' ');
-      return rmHashtags.substring(0, rmHashtags.length - 2);
+      if (str.contains('#')) {
+        final rmSpaces = str.split('').where((ea) => ea != ' ').toList().join('');
+        final rmHashtags = rmSpaces.split('#').where((ea) => ea != '').toList().join(' ');
+        return rmHashtags.substring(0, rmHashtags.length - 2);
+      } else {
+        return str.replaceAll(RegExp(r'\s+'), ' ');
+      }
     }
 
     String formattedName(String? s, int i) {
       if (i == 2) {
-        var sx = List.from(s!.split('#').where((ea) => ea != ''))[i]
-            .split(' ')
-            .where((ea) => ea != '')
-            .join('');
-        return sx.substring(0, sx.length - 2);
+        if (s!.contains('#')) {
+          var sx = List.from(s!.split('#').where((ea) => ea != ''))[i]
+              .split(' ')
+              .where((ea) => ea != '')
+              .join('');
+          return sx.substring(0, sx.length - 2);
+        } else {
+          var sx = List.from(s!.split(' ').where((ea) => ea != ''))[i]
+              .split(' ')
+              .where((ea) => ea != '')
+              .join('');
+          return sx.substring(0);
+        }
       } else {
-        return List.from(s!.split('#').where((ea) => ea != ''))[i];
+        if (s!.contains('#')) {
+          return List.from(s!.split('#').where((ea) => ea != ''))[i];
+        } else {
+          return List.from(s!.split(' ').where((ea) => ea != ''))[i];
+        }
       }
     }
 
     return ThaiIDCard(
+      code: map['code'],
+      message: map['message'],
       cid: map['cid']?.substring(0, 13),
       titleTH: map['nameTH'] != null ? formattedName(map['nameTH'], 0) : null,
       firstnameTH:
@@ -212,6 +233,8 @@ class ThaiIDCard {
   }
 
   String toJson() => json.encode(toMap());
+
+  bool isError() => code != "000";
 
   factory ThaiIDCard.fromJson(String source) =>
       ThaiIDCard.fromMap(json.decode(source));
