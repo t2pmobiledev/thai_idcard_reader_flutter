@@ -168,10 +168,17 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
     try {
       if (smartCardDevice == null) {
         getSmartCardDevice()
-        val response = HashMap<String, Any>()
-        response.put("code", "009")
-        response.put("message", "request permission")
-        result.success(JSONObject(response).toString())
+        if (smartCardDevice != null) {
+          val response = HashMap<String, Any>()
+          response.put("code", "009")
+          response.put("message", "Request permission")
+          result.success(JSONObject(response).toString())
+        } else {
+          val response = HashMap<String, Any>()
+          response.put("code", "004")
+          response.put("message", "Smart Card device not found")
+          result.success(JSONObject(response).toString())
+        }
         return
       }
 
