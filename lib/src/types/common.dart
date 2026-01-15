@@ -236,6 +236,8 @@ class ThaiIDCard {
 
   bool isError() => code != "000";
 
+  bool isRequestPermission() => code == "009";
+
   factory ThaiIDCard.fromJson(String source) =>
       ThaiIDCard.fromMap(json.decode(source));
 }

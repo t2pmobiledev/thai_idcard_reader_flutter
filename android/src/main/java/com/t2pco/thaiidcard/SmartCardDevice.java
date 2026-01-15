@@ -305,7 +305,7 @@ public class SmartCardDevice {
 
             if (ACTION_USB_PERMISSION.equals(action)) {
                 Log.d(TAG, "USB permission broadcast received");
-                //synchronized (this) {
+                synchronized (this) {
                     UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
                     device = (device == null) ? SmartCardDevice.this.device : device;
                     if (device != null && device.getDeviceName().equals(SmartCardDevice.this.device.getDeviceName())) {
@@ -321,6 +321,9 @@ public class SmartCardDevice {
                         if (SmartCardDevice.this.deviceConnection == null) {
                             Log.d(TAG,"Invalid USB device connection");
                             Toast.makeText(context, "Invalid USB device connection", Toast.LENGTH_SHORT).show();
+                            if (SmartCardDevice.this.eventCallback != null) {
+                                SmartCardDevice.this.eventCallback.OnDetached(SmartCardDevice.this);
+                            }
                             return;
                         }
 
@@ -331,6 +334,9 @@ public class SmartCardDevice {
                         if (SmartCardDevice.this.deviceInterface == null || SmartCardDevice.this.inputEndpoint == null || SmartCardDevice.this.outputEndpoint == null) {
                             Log.d(TAG,"Invalid USB device interface or endpoint");
                             Toast.makeText(context, "Invalid USB device interface or endpoint", Toast.LENGTH_SHORT).show();
+                            if (SmartCardDevice.this.eventCallback != null) {
+                                SmartCardDevice.this.eventCallback.OnDetached(SmartCardDevice.this);
+                            }
                             return;
                         }
 
@@ -355,7 +361,7 @@ public class SmartCardDevice {
                         filter.addAction("android.hardware.usb.action.USB_STATE");
                         context.registerReceiver(SmartCardDevice.this.usbStateChangeReceiver, filter);
                     }
-//                }
+                }
             } else if (ACTION_USB_ATTACHED.equals(action)) {
 //                Log.e("ThaiIdcard", "ACTION_USB_ATTACHED");
 //                manager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
