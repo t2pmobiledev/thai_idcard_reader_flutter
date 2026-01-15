@@ -301,7 +301,7 @@ public class SmartCardDevice {
 
             if (ACTION_USB_PERMISSION.equals(action)) {
                 Log.d(TAG, "USB permission broadcast received");
-                //synchronized (this) {
+                synchronized (this) {
                     UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
                     device = (device == null) ? SmartCardDevice.this.device : device;
                     if (device != null && device.getDeviceName().equals(SmartCardDevice.this.device.getDeviceName())) {
@@ -315,6 +315,9 @@ public class SmartCardDevice {
 
                         if (SmartCardDevice.this.deviceConnection == null) {
                             Log.d(TAG,"Invalid USB device connection");
+                            if (SmartCardDevice.this.eventCallback != null) {
+                                SmartCardDevice.this.eventCallback.OnDetached(SmartCardDevice.this);
+                            }
                             return;
                         }
 
@@ -324,6 +327,9 @@ public class SmartCardDevice {
 
                         if (SmartCardDevice.this.deviceInterface == null || SmartCardDevice.this.inputEndpoint == null || SmartCardDevice.this.outputEndpoint == null) {
                             Log.d(TAG,"Invalid USB device interface or endpoint");
+                            if (SmartCardDevice.this.eventCallback != null) {
+                                SmartCardDevice.this.eventCallback.OnDetached(SmartCardDevice.this);
+                            }
                             return;
                         }
 
@@ -347,7 +353,7 @@ public class SmartCardDevice {
                         filter.addAction("android.hardware.usb.action.USB_STATE");
                         context.registerReceiver(SmartCardDevice.this.usbStateChangeReceiver, filter);
                     }
-//                }
+                }
             }
         }
     };
