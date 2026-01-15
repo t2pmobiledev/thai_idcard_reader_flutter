@@ -4,15 +4,14 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.hardware.usb.*
-import android.hardware.usb.UsbDevice
-import android.hardware.usb.UsbManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import androidx.annotation.NonNull
-import androidx.core.content.ContextCompat
 import com.acs.smartcard.Reader
 import com.t2pco.thaiidcard.SmartCardDevice
 import com.t2pco.thaiidcard.ThaiSmartCard
@@ -22,11 +21,9 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
+import org.json.JSONObject
 import java.nio.charset.*
 import java.util.*
-import org.json.JSONObject
-import java.io.ByteArrayOutputStream
-import kotlin.collections.contains
 import kotlin.concurrent.thread
 
 const val ACTION_USB_PERMISSION = "com.example.thai_idcard_reader_flutter.USB_PERMISSION"
@@ -56,6 +53,8 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
 
   private var readerStreamHandler: ReaderStream? = null
   private var isReceiving: Boolean = false
+
+  private var smartCardDevice: SmartCardDevice? = null
 
   private val usbReceiver: BroadcastReceiver =
       object : BroadcastReceiver() {
@@ -130,13 +129,13 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
   }
 
   override fun onListen(arguments: Any?, eventSink: EventChannel.EventSink?) {
-    this.eventSink = eventSink
-    usbManager?.deviceList?.values?.forEach { device ->
-      if (mReader?.isSupported(device) ?: false) {
-        this.device = device
-        usbManager?.requestPermission(device, pendingPermissionIntent(applicationContext!!))
-      }
-    }
+//    this.eventSink = eventSink
+//    usbManager?.deviceList?.values?.forEach { device ->
+//      if (mReader?.isSupported(device) ?: false) {
+//        this.device = device
+//        usbManager?.requestPermission(device, pendingPermissionIntent(applicationContext!!))
+//      }
+//    }
   }
 
   override fun onCancel(arguments: Any?) {
@@ -152,16 +151,22 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
         MethodChannel(flutterPluginBinding.binaryMessenger, "thai_idcard_reader_flutter_channel")
     channel.setMethodCallHandler(this)
     applicationContext = flutterPluginBinding.applicationContext
-    usbManager = applicationContext?.getSystemService(Context.USB_SERVICE) as UsbManager
-    mReader = Reader(usbManager)
 
-    val usbEventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "usb_stream_channel")
-    usbEventChannel.setStreamHandler(this)
+    Handler(Looper.getMainLooper()).postDelayed({
+      getSmartCardDevice();
+    }, 2000)
 
-    val readerEventChannel =
-        EventChannel(flutterPluginBinding.binaryMessenger, "reader_stream_channel")
-    readerStreamHandler = ReaderStream()
-    readerEventChannel.setStreamHandler(readerStreamHandler)
+
+//    usbManager = applicationContext?.getSystemService(Context.USB_SERVICE) as UsbManager
+//    mReader = Reader(usbManager)
+//
+//    val usbEventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "usb_stream_channel")
+//    usbEventChannel.setStreamHandler(this)
+//
+//    val readerEventChannel =
+//        EventChannel(flutterPluginBinding.binaryMessenger, "reader_stream_channel")
+//    readerStreamHandler = ReaderStream()
+//    readerEventChannel.setStreamHandler(readerStreamHandler)
 
 //    val filter = IntentFilter(ACTION_USB_PERMISSION)
 //    filter.addAction(ACTION_USB_DETACHED)
@@ -182,6 +187,22 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
 //    }
   }
 
+  private fun getSmartCardDevice() {
+    smartCardDevice = SmartCardDevice.getSmartCardDevice(
+      applicationContext!!,
+      "",
+      object : SmartCardDevice.SmartCardDeviceEvent {
+        override fun OnReady(device: SmartCardDevice?) {
+          smartCardDevice = device
+        }
+
+        override fun OnDetached(device: SmartCardDevice?) {
+          Log.d("SmartCard","Smart Card is removed")
+          smartCardDevice = null
+        }
+      })
+  }
+
   override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
 //    applicationContext?.unregisterReceiver(usbReceiver)
     channel.setMethodCallHandler(null)
@@ -200,41 +221,41 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
       "getPlatformVersion" -> {
         result.success("Android ${Build.VERSION.RELEASE}")
       }
-      "readAll" -> {
-        var apdu = ThaiADPU()
-        val reader = mReader ?: return result.error("IllegalState", "mReader null", null)
-        try {
-          val res: Map<String, Any?> = apdu.readAll(reader)
-          result.success(JSONObject(res).toString())
-        } catch (e: Exception) {
-          result.success("ERR/kt/readAll ${e.toString()}")
-        }
-      }
-      "read" -> {
-        var apdu = ThaiADPU()
-        val selected = call.argument<List<String>>("selected")
-        val selectedArray: Array<String> = selected!!.toTypedArray()
-        val reader = mReader ?: return result.error("IllegalState", "mReader null", null)
-        try {
-          val res: Map<String, Any?> = apdu.readSpecific(reader, selectedArray)
-
-          result.success(JSONObject(res).toString())
-        } catch (e: Exception) {
-          result.success("ERR/kt/read ${e.toString()}")
-        }
-      }
-      "requestPermission" -> {
-        val context =
-            applicationContext
-                ?: return result.error("IllegalState", "applicationContext null", null)
-        val manager = usbManager ?: return result.error("IllegalState", "usbManager null", null)
-        val identifier = call.argument<String>("identifier")
-        val device = manager.deviceList[identifier]
-        if (!manager.hasPermission(device)) {
-          manager.requestPermission(device, pendingPermissionIntent(context))
-        }
-        result.success(null)
-      }
+//      "readAll" -> {
+//        var apdu = ThaiADPU()
+//        val reader = mReader ?: return result.error("IllegalState", "mReader null", null)
+//        try {
+//          val res: Map<String, Any?> = apdu.readAll(reader)
+//          result.success(JSONObject(res).toString())
+//        } catch (e: Exception) {
+//          result.success("ERR/kt/readAll ${e.toString()}")
+//        }
+//      }
+//      "read" -> {
+//        var apdu = ThaiADPU()
+//        val selected = call.argument<List<String>>("selected")
+//        val selectedArray: Array<String> = selected!!.toTypedArray()
+//        val reader = mReader ?: return result.error("IllegalState", "mReader null", null)
+//        try {
+//          val res: Map<String, Any?> = apdu.readSpecific(reader, selectedArray)
+//
+//          result.success(JSONObject(res).toString())
+//        } catch (e: Exception) {
+//          result.success("ERR/kt/read ${e.toString()}")
+//        }
+//      }
+//      "requestPermission" -> {
+//        val context =
+//            applicationContext
+//                ?: return result.error("IllegalState", "applicationContext null", null)
+//        val manager = usbManager ?: return result.error("IllegalState", "usbManager null", null)
+//        val identifier = call.argument<String>("identifier")
+//        val device = manager.deviceList[identifier]
+//        if (!manager.hasPermission(device)) {
+//          manager.requestPermission(device, pendingPermissionIntent(context))
+//        }
+//        result.success(null)
+//      }
       "getInfo" -> {
         readCardReader(result)
       }
@@ -244,73 +265,108 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
 
   private fun readCardReader(result: Result) {
     try {
-      val device: SmartCardDevice? = SmartCardDevice.getSmartCardDevice(
-        applicationContext!!,
-        "",
-        object : SmartCardDevice.SmartCardDeviceEvent {
-          override fun OnReady(device: SmartCardDevice?) {
-            val thaiSmartCard = ThaiSmartCard(device)
+      Toast.makeText(applicationContext, "version 12", Toast.LENGTH_SHORT).show()
 
-            if (!thaiSmartCard.isInserted) {
-              Log.d("SmartCard","Smart Card not found")
-              val response = HashMap<String, Any>()
-              response.put("code", "001")
-              response.put("message", "Smart Card not found")
-              result.success(JSONObject(response).toString())
-              return
-            }
+      if (smartCardDevice == null) {
+        getSmartCardDevice()
 
-            thread(start = true) {
-              val info: ThaiSmartCard.PersonalInformation? = thaiSmartCard.getPersonalInformation()
-              if (info == null) {
-                Log.d("SmartCard","Read Smart Card information failed")
-                val response = HashMap<String, Any>()
-                response.put("code", "002")
-                response.put("message", "Read Smart Card information failed")
-                result.success(JSONObject(response).toString())
-                return@thread
-              }
+        if (smartCardDevice == null) {
+          val response = HashMap<String, Any>()
+          response.put("code", "004")
+          response.put("message", "Smart Card device not found")
+          result.success(JSONObject(response).toString())
+        }
+        return
+      }
 
-              val personalPic: Bitmap? = thaiSmartCard.getPersonalPicture()
 
-              if (personalPic == null) {
-                Log.d("SmartCard","Read Smart Card personal picture failed")
-                val response = HashMap<String, Any>()
-                response.put("code", "003")
-                response.put("message", "Read Smart Card personal picture failed")
-                result.success(JSONObject(response).toString())
-                return@thread
-              }
+      val havePermission = smartCardDevice?.havePermission ?: false
+      if (!havePermission) {
+        smartCardDevice?.requestPermission()
+        return
+      }
 
-              val response = HashMap<String, Any>()
-              response.put("code", "000")
-              response.put("message", "Success")
-              response.put("cid", info.PersonalID)
-              response.put("nameTH", info.NameTH)
-              response.put("nameEN", info.NameEN)
-              response.put("birthdate", info.BirthDate)
-              response.put("gender", info.Gender)
-              response.put("address", info.Address)
-              response.put("cardIssuer", info.Issuer)
-              response.put("issueDate", info.IssueDate)
-              response.put("expireDate", info.ExpireDate)
-              response.put("photo", thaiSmartCard.bytePersonalPicture)
-              result.success(JSONObject(response).toString())
-              Log.d("SmartCard","Read Smart Card Success")
-            }
-          }
+      Toast.makeText(applicationContext, smartCardDevice?.deviceProductName, Toast.LENGTH_SHORT).show()
 
-          override fun OnDetached(device: SmartCardDevice?) {
-            Log.d("SmartCard","Smart Card is removed")
-          }
-        })
+      if (smartCardDevice?.deviceProductName?.startsWith("ACR39U") ?: false) {
+        usbManager = applicationContext?.getSystemService(Context.USB_SERVICE) as UsbManager
+        mReader = Reader(usbManager)
+        val reader = mReader ?: return result.error("IllegalState", "mReader null", null)
+        try {
+          var apdu = ThaiADPU()
+          this.device = smartCardDevice?.device
+          reader.open(device)
+          val res: HashMap<String, Any> = apdu.readAll(reader)
+          res.put("code", "000")
+          res.put("message", "Success")
+          result.success(JSONObject(res).toString())
+        } catch (e: Exception) {
+          val response = HashMap<String, Any>()
+          response.put("code", "005")
+          response.put("message", "${e.toString()}")
+          result.success(JSONObject(response).toString())
+        } finally {
+          reader.close()
+        }
+        return
+      }
 
-      if (device == null) {
+      val thaiSmartCard = ThaiSmartCard(smartCardDevice)
+
+      if (!thaiSmartCard.isInserted) {
+        Log.d("SmartCard","Smart Card not found")
         val response = HashMap<String, Any>()
-        response.put("code", "004")
-        response.put("message", "Smart Card device not found")
+        response.put("code", "001")
+        response.put("message", "Smart Card not found")
         result.success(JSONObject(response).toString())
         return
+      }
+
+      thread(start = true) {
+        try {
+
+          val info: ThaiSmartCard.PersonalInformation? = thaiSmartCard.getPersonalInformation()
+          if (info == null) {
+            Log.d("SmartCard","Read Smart Card information failed")
+            val response = HashMap<String, Any>()
+            response.put("code", "002")
+            response.put("message", "Read Smart Card information failed")
+            result.success(JSONObject(response).toString())
+            return@thread
+          }
+
+          val personalPic: Bitmap? = thaiSmartCard.getPersonalPicture()
+
+          if (personalPic == null) {
+            Log.d("SmartCard","Read Smart Card personal picture failed")
+            val response = HashMap<String, Any>()
+            response.put("code", "003")
+            response.put("message", "Read Smart Card personal picture failed")
+            result.success(JSONObject(response).toString())
+            return@thread
+          }
+
+          val response = HashMap<String, Any>()
+          response.put("code", "000")
+          response.put("message", "Success")
+          response.put("cid", info.PersonalID)
+          response.put("nameTH", info.NameTH)
+          response.put("nameEN", info.NameEN)
+          response.put("birthdate", info.BirthDate)
+          response.put("gender", info.Gender)
+          response.put("address", info.Address)
+          response.put("cardIssuer", info.Issuer)
+          response.put("issueDate", info.IssueDate)
+          response.put("expireDate", info.ExpireDate)
+          response.put("photo", thaiSmartCard.bytePersonalPicture)
+          result.success(JSONObject(response).toString())
+          Log.d("SmartCard","Read Smart Card Success")
+        } catch (e: Exception) {
+          val response = HashMap<String, Any>()
+          response.put("code", "005")
+          response.put("message", "${e.toString()}")
+          result.success(JSONObject(response).toString())
+        }
       }
     } catch (e: Exception) {
       val response = HashMap<String, Any>()

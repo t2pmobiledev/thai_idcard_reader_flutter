@@ -31,7 +31,7 @@ class ThaiIdcardReaderFlutter with ThaiIDType {
     // final String res = only.isNotEmpty
     //     ? await _channel.invokeMethod('read', {'selected': only})
     //     : await _channel.invokeMethod('readAll');
-    final String res = await _channel.invokeMethod('getInfo').timeout(const Duration(seconds: 30));
+    final String res = await _channel.invokeMethod('getInfo').timeout(const Duration(seconds: 10));
     return ThaiIDCard.fromJson(res);
   }
 }

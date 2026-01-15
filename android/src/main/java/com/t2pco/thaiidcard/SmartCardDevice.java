@@ -11,6 +11,8 @@ import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.util.Log;
+import android.widget.Toast;
+
 import androidx.core.content.ContextCompat;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -19,13 +21,14 @@ import java.util.Set;
 
 public class SmartCardDevice {
     private static final String ACTION_USB_PERMISSION = "ninkoman.smartcardreader.USB_PERMISSION";
+    private static final String ACTION_USB_ATTACHED = "android.hardware.usb.action.USB_DEVICE_ATTACHED";
     private static final String TAG = "SmartCardDevice";
 
     private Context context;
-    private UsbDevice device;
+    public UsbDevice device;
     private SmartCardMessage message;
     private PendingIntent mPermissionIntent;
-    private boolean havePermission = false;
+    public boolean havePermission = false;
     private UsbDeviceConnection deviceConnection = null;
     private UsbInterface deviceInterface = null;
     private UsbEndpoint inputEndpoint = null;
@@ -70,6 +73,7 @@ public class SmartCardDevice {
         mPermissionIntent = PendingIntent.getBroadcast(context, 0, new Intent(ACTION_USB_PERMISSION),PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
         IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
+        filter.addAction(ACTION_USB_ATTACHED);
         ContextCompat.registerReceiver(context, this.mUsbPermissionReceiver, filter, ContextCompat.RECEIVER_EXPORTED);
     }
 
@@ -198,8 +202,14 @@ public class SmartCardDevice {
         if (manager != null) {
             Log.d(TAG, "Start request permission");
             manager.requestPermission(device, mPermissionIntent);
-        } else {
-            throw new RuntimeException("USB manager not found");
+        }
+    }
+
+    public void requestPermission() {
+        UsbManager manager = (UsbManager)this.context.getSystemService(Context.USB_SERVICE);
+        if (manager != null) {
+            Log.d(TAG, "Start request permission");
+            manager.requestPermission(device, mPermissionIntent);
         }
     }
 
@@ -295,13 +305,14 @@ public class SmartCardDevice {
 
             if (ACTION_USB_PERMISSION.equals(action)) {
                 Log.d(TAG, "USB permission broadcast received");
-                synchronized (this) {
+                //synchronized (this) {
                     UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
                     device = (device == null) ? SmartCardDevice.this.device : device;
                     if (device != null && device.getDeviceName().equals(SmartCardDevice.this.device.getDeviceName())) {
                         manager = (UsbManager)context.getSystemService(Context.USB_SERVICE);
                         if (manager == null) {
                             Log.d(TAG,"USB manager not found");
+                            Toast.makeText(context, "USB manager not found", Toast.LENGTH_SHORT).show();
                             return;
                         }
 
@@ -309,6 +320,7 @@ public class SmartCardDevice {
 
                         if (SmartCardDevice.this.deviceConnection == null) {
                             Log.d(TAG,"Invalid USB device connection");
+                            Toast.makeText(context, "Invalid USB device connection", Toast.LENGTH_SHORT).show();
                             return;
                         }
 
@@ -318,6 +330,7 @@ public class SmartCardDevice {
 
                         if (SmartCardDevice.this.deviceInterface == null || SmartCardDevice.this.inputEndpoint == null || SmartCardDevice.this.outputEndpoint == null) {
                             Log.d(TAG,"Invalid USB device interface or endpoint");
+                            Toast.makeText(context, "Invalid USB device interface or endpoint", Toast.LENGTH_SHORT).show();
                             return;
                         }
 
@@ -327,6 +340,7 @@ public class SmartCardDevice {
                         if (SmartCardDevice.this.eventCallback != null) {
                             SmartCardDevice.this.eventCallback.OnReady(SmartCardDevice.this);
                             Log.d(TAG, "Card device is ready");
+                            Toast.makeText(context, "Card device is ready", Toast.LENGTH_SHORT).show();
                         }
 
                         if (!SmartCardDevice.this.deviceDetachedRegister) {
@@ -341,6 +355,58 @@ public class SmartCardDevice {
                         filter.addAction("android.hardware.usb.action.USB_STATE");
                         context.registerReceiver(SmartCardDevice.this.usbStateChangeReceiver, filter);
                     }
+//                }
+            } else if (ACTION_USB_ATTACHED.equals(action)) {
+                Log.e("ThaiIdcard", "ACTION_USB_ATTACHED");
+                manager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
+                UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                device = (device == null) ? SmartCardDevice.this.device : device;
+                if (manager.hasPermission(device)) {
+                    Log.e("ThaiIdcard", "ACTION_USB_ATTACHED/hasPermission");
+
+                    SmartCardDevice.this.deviceConnection = manager.openDevice(device);
+
+                    if (SmartCardDevice.this.deviceConnection == null) {
+                        Log.d(TAG,"Invalid USB device connection");
+                        Toast.makeText(context, "Invalid USB device connection", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+
+                    SmartCardDevice.this.deviceInterface = device.getInterface(infIndex);
+                    SmartCardDevice.this.inputEndpoint = SmartCardDevice.this.deviceInterface.getEndpoint(endpointInputIndex);
+                    SmartCardDevice.this.outputEndpoint = SmartCardDevice.this.deviceInterface.getEndpoint(endpointOutputIndex);
+
+                    if (SmartCardDevice.this.deviceInterface == null || SmartCardDevice.this.inputEndpoint == null || SmartCardDevice.this.outputEndpoint == null) {
+                        Log.d(TAG,"Invalid USB device interface or endpoint");
+                        Toast.makeText(context, "Invalid USB device interface or endpoint", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+
+                    SmartCardDevice.this.havePermission = true;
+                    SmartCardDevice.this.stopped = false;
+
+                    if (SmartCardDevice.this.eventCallback != null) {
+                        SmartCardDevice.this.eventCallback.OnReady(SmartCardDevice.this);
+                        Log.d(TAG, "Card device is ready");
+                        Toast.makeText(context, "Card device is ready", Toast.LENGTH_SHORT).show();
+                    }
+
+                    if (!SmartCardDevice.this.deviceDetachedRegister) {
+                        IntentFilter filter = new IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED);
+                        SmartCardDevice.this.context.registerReceiver(SmartCardDevice.this.mUsbDetachedReceiver, filter);
+                        SmartCardDevice.this.deviceDetachedRegister = true;
+                    }
+
+                    SmartCardDevice.this.context.unregisterReceiver(SmartCardDevice.this.mUsbPermissionReceiver);
+
+                    IntentFilter filter = new IntentFilter();
+                    filter.addAction("android.hardware.usb.action.USB_STATE");
+                    context.registerReceiver(SmartCardDevice.this.usbStateChangeReceiver, filter);
+                } else {
+                    Log.e("ThaiIdcard", "ACTION_USB_ATTACHED/noPermission");
+                    SmartCardDevice.this.started = true;
+                    manager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
+                    manager.requestPermission(device, mPermissionIntent);
                 }
             }
         }
