@@ -11,7 +11,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.widget.Toast
 import androidx.annotation.NonNull
 import androidx.core.content.ContextCompat
 import com.acs.smartcard.Reader
@@ -167,8 +166,6 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
 
   private fun readCardReader(result: Result) {
     try {
-      Toast.makeText(applicationContext, "version 21", Toast.LENGTH_SHORT).show()
-
       if (smartCardDevice == null) {
         getSmartCardDevice()
 
