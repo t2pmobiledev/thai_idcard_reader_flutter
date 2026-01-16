@@ -40,7 +40,13 @@ public final class ThaiSmartCard {
 
     public boolean isInserted() {
         SmartCardMessage.DataBlock data;
-        return ((data = this.device.getATR()) != null && data.dataType == SmartCardMessage.DataType.ATR && data.status == 0 && data.error == 0);
+        data = this.device.getATR();
+
+        if (data == null) {
+            return false;
+        }
+
+        return (data.dataType == SmartCardMessage.DataType.ATR && data.status == 0 && data.error == 0);
     }
 
     private SmartCardMessage.DataBlock getCardData(byte[] requestMessage) {

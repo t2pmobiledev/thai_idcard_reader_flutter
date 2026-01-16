@@ -18,7 +18,6 @@ import java.util.HashMap;
 
 public class SmartCardDevice {
     private static final String ACTION_USB_PERMISSION = "ninkoman.smartcardreader.USB_PERMISSION";
-    private static final String ACTION_USB_ATTACHED = "android.hardware.usb.action.USB_DEVICE_ATTACHED";
     private static final String TAG = "SmartCardDevice";
 
     private Context context;
@@ -39,19 +38,6 @@ public class SmartCardDevice {
     private boolean deviceDetachedRegister = false;
 
     private SmartCardDeviceEvent eventCallback = null;
-
-    private BroadcastReceiver usbStateChangeReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-//            Set<String> keys = intent.getExtras().keySet();
-
-//            Log.d(TAG, "Usb State change ===");
-//
-//            for (String key : keys) {
-//                Log.d(TAG, "key: " + key);
-//            }
-        }
-    };
 
     public SmartCardDevice(Context context, UsbDevice device, int infIndex, int endpointInputIndex, int endpointOutputIndex, SmartCardDeviceEvent eventCallback) {
         if (context == null || device == null) {
@@ -216,8 +202,6 @@ public class SmartCardDevice {
         }
         this.started = false;
 
-        this.context.unregisterReceiver(this.usbStateChangeReceiver);
-
         this.havePermission = false;
     }
 
@@ -322,10 +306,10 @@ public class SmartCardDevice {
                         }
 
                         SmartCardDevice.this.deviceInterface = device.getInterface(infIndex);
-                        SmartCardDevice.this.inputEndpoint = SmartCardDevice.this.deviceInterface.getEndpoint(endpointInputIndex);
-                        SmartCardDevice.this.outputEndpoint = SmartCardDevice.this.deviceInterface.getEndpoint(endpointOutputIndex);
+                        UsbEndpoint ep0 = SmartCardDevice.this.deviceInterface.getEndpoint(endpointInputIndex);
+                        UsbEndpoint ep1 = SmartCardDevice.this.deviceInterface.getEndpoint(endpointOutputIndex);
 
-                        if (SmartCardDevice.this.deviceInterface == null || SmartCardDevice.this.inputEndpoint == null || SmartCardDevice.this.outputEndpoint == null) {
+                        if (SmartCardDevice.this.deviceInterface == null || ep0 == null || ep1 == null) {
                             Log.d(TAG,"Invalid USB device interface or endpoint");
                             if (SmartCardDevice.this.eventCallback != null) {
                                 SmartCardDevice.this.eventCallback.OnDetached(SmartCardDevice.this);
@@ -333,12 +317,30 @@ public class SmartCardDevice {
                             return;
                         }
 
+                        // Assign endpoints based on direction, not index
+                        // USB_DIR_IN (128) = receive data FROM device
+                        // USB_DIR_OUT (0) = send data TO device
+                        if (ep0.getDirection() == android.hardware.usb.UsbConstants.USB_DIR_IN) {
+                            SmartCardDevice.this.inputEndpoint = ep0;
+                            SmartCardDevice.this.outputEndpoint = ep1;
+                        } else {
+                            SmartCardDevice.this.inputEndpoint = ep1;
+                            SmartCardDevice.this.outputEndpoint = ep0;
+                        }
+
+                        // Validate endpoint directions
+                        if (SmartCardDevice.this.inputEndpoint.getDirection() != android.hardware.usb.UsbConstants.USB_DIR_IN ||
+                            SmartCardDevice.this.outputEndpoint.getDirection() != android.hardware.usb.UsbConstants.USB_DIR_OUT) {
+                            Log.w(TAG, "Warning: Endpoint directions may be incorrect. IN dir=" +
+                                  SmartCardDevice.this.inputEndpoint.getDirection() + ", OUT dir=" +
+                                  SmartCardDevice.this.outputEndpoint.getDirection());
+                        }
+
                         SmartCardDevice.this.havePermission = true;
                         SmartCardDevice.this.stopped = false;
 
                         if (SmartCardDevice.this.eventCallback != null) {
                             SmartCardDevice.this.eventCallback.OnReady(SmartCardDevice.this);
-                            Log.d(TAG, "Card device is ready");
                         }
 
                         if (!SmartCardDevice.this.deviceDetachedRegister) {
@@ -348,10 +350,6 @@ public class SmartCardDevice {
                         }
 
                         SmartCardDevice.this.context.unregisterReceiver(SmartCardDevice.this.mUsbPermissionReceiver);
-
-                        IntentFilter filter = new IntentFilter();
-                        filter.addAction("android.hardware.usb.action.USB_STATE");
-                        context.registerReceiver(SmartCardDevice.this.usbStateChangeReceiver, filter);
                     }
                 }
             }
@@ -405,7 +403,7 @@ public class SmartCardDevice {
                 return null;
             }
         } catch (IOException e) {
-            Log.w(TAG, "receiveResponseMessage() failed");
+            Log.w(TAG, "receiveResponseMessage() failed: " + e.getMessage());
             return null;
         }
 
@@ -537,16 +535,10 @@ public class SmartCardDevice {
             return false;
         }
 
-        StringBuilder sb = new StringBuilder();
-        for (byte b: message) {
-            sb.append(String.format("%02x", (byte)b));
-        }
-//        Log.d(TAG, "Sending message [" + message.length + "][" + sb.toString() + "]");
-
-        length = this.deviceConnection.bulkTransfer(this.inputEndpoint, message, message.length, 0);
+        length = this.deviceConnection.bulkTransfer(this.outputEndpoint, message, message.length, 800);
 
         if (length <= 0 || length != message.length) {
-//            Log.w(TAG, "message sending return invalid length " + length + "/" + message.length);
+            Log.w(TAG, "Send failed: returned " + length + "/" + message.length + " bytes");
             return false;
         }
 
@@ -563,12 +555,12 @@ public class SmartCardDevice {
             return null;
         }
 
-        buffer = new byte[this.outputEndpoint.getMaxPacketSize()];
+        buffer = new byte[this.inputEndpoint.getMaxPacketSize()];
 
-        length = this.deviceConnection.bulkTransfer(this.outputEndpoint, buffer, buffer.length, 0);
+        length = this.deviceConnection.bulkTransfer(this.inputEndpoint, buffer, buffer.length, 1500);
 
         if (length < 10) {
-//            Log.w(TAG, "receive message invalid length " + length);
+            Log.w(TAG, "receive message invalid length " + length);
             return null;
         }
 
@@ -579,7 +571,7 @@ public class SmartCardDevice {
         totalLength += 10;
 
         while (dataStream.size() < totalLength) {
-            length = this.deviceConnection.bulkTransfer(this.outputEndpoint, buffer, buffer.length, 0);
+            length = this.deviceConnection.bulkTransfer(this.inputEndpoint, buffer, buffer.length, 500);
             if (length < 0) {
                 Log.w(TAG, "receive continues message return error");
                 dataStream.close();
