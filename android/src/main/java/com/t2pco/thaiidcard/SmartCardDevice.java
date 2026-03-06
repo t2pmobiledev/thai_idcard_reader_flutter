@@ -286,70 +286,74 @@ public class SmartCardDevice {
             if (ACTION_USB_PERMISSION.equals(action)) {
                 Log.d(TAG, "USB permission broadcast received");
                 synchronized (this) {
-                    UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
-                    device = (device == null) ? SmartCardDevice.this.device : device;
-                    if (device != null && device.getDeviceName().equals(SmartCardDevice.this.device.getDeviceName())) {
-                        manager = (UsbManager)context.getSystemService(Context.USB_SERVICE);
-                        if (manager == null) {
-                            Log.d(TAG,"USB manager not found");
-                            return;
-                        }
-
-                        SmartCardDevice.this.deviceConnection = manager.openDevice(device);
-
-                        if (SmartCardDevice.this.deviceConnection == null) {
-                            Log.d(TAG,"Invalid USB device connection");
-                            if (SmartCardDevice.this.eventCallback != null) {
-                                SmartCardDevice.this.eventCallback.OnDetached(SmartCardDevice.this);
+                    try {
+                        UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                        device = (device == null) ? SmartCardDevice.this.device : device;
+                        if (device != null && device.getDeviceName().equals(SmartCardDevice.this.device.getDeviceName())) {
+                            manager = (UsbManager)context.getSystemService(Context.USB_SERVICE);
+                            if (manager == null) {
+                                Log.d(TAG,"USB manager not found");
+                                return;
                             }
-                            return;
-                        }
 
-                        SmartCardDevice.this.deviceInterface = device.getInterface(infIndex);
-                        UsbEndpoint ep0 = SmartCardDevice.this.deviceInterface.getEndpoint(endpointInputIndex);
-                        UsbEndpoint ep1 = SmartCardDevice.this.deviceInterface.getEndpoint(endpointOutputIndex);
+                            SmartCardDevice.this.deviceConnection = manager.openDevice(device);
 
-                        if (SmartCardDevice.this.deviceInterface == null || ep0 == null || ep1 == null) {
-                            Log.d(TAG,"Invalid USB device interface or endpoint");
-                            if (SmartCardDevice.this.eventCallback != null) {
-                                SmartCardDevice.this.eventCallback.OnDetached(SmartCardDevice.this);
+                            if (SmartCardDevice.this.deviceConnection == null) {
+                                Log.d(TAG,"Invalid USB device connection");
+                                if (SmartCardDevice.this.eventCallback != null) {
+                                    SmartCardDevice.this.eventCallback.OnDetached(SmartCardDevice.this);
+                                }
+                                return;
                             }
-                            return;
+
+                            SmartCardDevice.this.deviceInterface = device.getInterface(infIndex);
+                            UsbEndpoint ep0 = SmartCardDevice.this.deviceInterface.getEndpoint(endpointInputIndex);
+                            UsbEndpoint ep1 = SmartCardDevice.this.deviceInterface.getEndpoint(endpointOutputIndex);
+
+                            if (SmartCardDevice.this.deviceInterface == null || ep0 == null || ep1 == null) {
+                                Log.d(TAG,"Invalid USB device interface or endpoint");
+                                if (SmartCardDevice.this.eventCallback != null) {
+                                    SmartCardDevice.this.eventCallback.OnDetached(SmartCardDevice.this);
+                                }
+                                return;
+                            }
+
+                            // Assign endpoints based on direction, not index
+                            // USB_DIR_IN (128) = receive data FROM device
+                            // USB_DIR_OUT (0) = send data TO device
+                            if (ep0.getDirection() == android.hardware.usb.UsbConstants.USB_DIR_IN) {
+                                SmartCardDevice.this.inputEndpoint = ep0;
+                                SmartCardDevice.this.outputEndpoint = ep1;
+                            } else {
+                                SmartCardDevice.this.inputEndpoint = ep1;
+                                SmartCardDevice.this.outputEndpoint = ep0;
+                            }
+
+                            // Validate endpoint directions
+                            if (SmartCardDevice.this.inputEndpoint.getDirection() != android.hardware.usb.UsbConstants.USB_DIR_IN ||
+                                SmartCardDevice.this.outputEndpoint.getDirection() != android.hardware.usb.UsbConstants.USB_DIR_OUT) {
+                                Log.w(TAG, "Warning: Endpoint directions may be incorrect. IN dir=" +
+                                      SmartCardDevice.this.inputEndpoint.getDirection() + ", OUT dir=" +
+                                      SmartCardDevice.this.outputEndpoint.getDirection());
+                            }
+
+                            SmartCardDevice.this.havePermission = true;
+                            SmartCardDevice.this.stopped = false;
+
+                            if (SmartCardDevice.this.eventCallback != null) {
+                                SmartCardDevice.this.eventCallback.OnReady(SmartCardDevice.this);
+                            }
+
+                            if (!SmartCardDevice.this.deviceDetachedRegister) {
+                                IntentFilter filter = new IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED);
+                                SmartCardDevice.this.context.registerReceiver(SmartCardDevice.this.mUsbDetachedReceiver, filter);
+                                SmartCardDevice.this.deviceDetachedRegister = true;
+                            }
+
+                            SmartCardDevice.this.context.unregisterReceiver(SmartCardDevice.this.mUsbPermissionReceiver);
                         }
-
-                        // Assign endpoints based on direction, not index
-                        // USB_DIR_IN (128) = receive data FROM device
-                        // USB_DIR_OUT (0) = send data TO device
-                        if (ep0.getDirection() == android.hardware.usb.UsbConstants.USB_DIR_IN) {
-                            SmartCardDevice.this.inputEndpoint = ep0;
-                            SmartCardDevice.this.outputEndpoint = ep1;
-                        } else {
-                            SmartCardDevice.this.inputEndpoint = ep1;
-                            SmartCardDevice.this.outputEndpoint = ep0;
-                        }
-
-                        // Validate endpoint directions
-                        if (SmartCardDevice.this.inputEndpoint.getDirection() != android.hardware.usb.UsbConstants.USB_DIR_IN ||
-                            SmartCardDevice.this.outputEndpoint.getDirection() != android.hardware.usb.UsbConstants.USB_DIR_OUT) {
-                            Log.w(TAG, "Warning: Endpoint directions may be incorrect. IN dir=" +
-                                  SmartCardDevice.this.inputEndpoint.getDirection() + ", OUT dir=" +
-                                  SmartCardDevice.this.outputEndpoint.getDirection());
-                        }
-
-                        SmartCardDevice.this.havePermission = true;
-                        SmartCardDevice.this.stopped = false;
-
-                        if (SmartCardDevice.this.eventCallback != null) {
-                            SmartCardDevice.this.eventCallback.OnReady(SmartCardDevice.this);
-                        }
-
-                        if (!SmartCardDevice.this.deviceDetachedRegister) {
-                            IntentFilter filter = new IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED);
-                            SmartCardDevice.this.context.registerReceiver(SmartCardDevice.this.mUsbDetachedReceiver, filter);
-                            SmartCardDevice.this.deviceDetachedRegister = true;
-                        }
-
-                        SmartCardDevice.this.context.unregisterReceiver(SmartCardDevice.this.mUsbPermissionReceiver);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error handling USB permission broadcast: " + e.getMessage(), e);
                     }
                 }
             }

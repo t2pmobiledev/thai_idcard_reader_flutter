@@ -101,8 +101,12 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
         override fun OnReady(device: SmartCardDevice?) {
           smartCardDevice = device
           if (mReader?.isSupported(device?.device) ?: false) {
-            mReader?.open(device?.device)
-            mReader?.setOnStateChangeListener(cardStateListener)
+            try {
+              mReader?.open(device?.device)
+              mReader?.setOnStateChangeListener(cardStateListener)
+            } catch (e: Exception) {
+              Log.w("ThaiIdcard", "Cannot open reader: ${e.toString()}")
+            }
           }
         }
 
