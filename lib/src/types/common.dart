@@ -183,23 +183,19 @@ class ThaiIDCard {
     String formattedName(String? s, int i) {
       if (i == 2) {
         if (s!.contains('#')) {
-          var sx = List.from(s!.split('#').where((ea) => ea != ''))[i]
-              .split(' ')
-              .where((ea) => ea != '')
-              .join('');
+          var parts = List.from(s.split('#').where((ea) => ea != ''));
+          var sx = parts.sublist(2).join(' ');
           return sx.substring(0, sx.length - 2);
         } else {
-          var sx = List.from(s!.split(' ').where((ea) => ea != ''))[i]
-              .split(' ')
-              .where((ea) => ea != '')
-              .join('');
-          return sx.substring(0);
+          var parts = List.from(s.split(' ').where((ea) => ea != ''));
+          var sx = parts.sublist(2).join(' ');
+          return sx;
         }
       } else {
         if (s!.contains('#')) {
-          return List.from(s!.split('#').where((ea) => ea != ''))[i];
+          return List.from(s.split('#').where((ea) => ea != ''))[i];
         } else {
-          return List.from(s!.split(' ').where((ea) => ea != ''))[i];
+          return List.from(s.split(' ').where((ea) => ea != ''))[i];
         }
       }
     }
