@@ -36,6 +36,7 @@ public class SmartCardDevice {
     private boolean stopped = true;
     private boolean started = false;
     private boolean deviceDetachedRegister = false;
+    private boolean permissionRequested = false;
 
     private SmartCardDeviceEvent eventCallback = null;
 
@@ -53,7 +54,12 @@ public class SmartCardDevice {
         this.endpointOutputIndex = endpointOutputIndex;
         this.eventCallback = eventCallback;
 
-        mPermissionIntent = PendingIntent.getBroadcast(context, 0, new Intent(ACTION_USB_PERMISSION),PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        // Must use getActivity() (not getBroadcast()) so Android can associate the permission
+        // with the app's Activity that has the USB_DEVICE_ATTACHED intent-filter — this is
+        // what causes the "Always allow from this app" checkbox to appear in the dialog.
+        Intent permIntent = new Intent(ACTION_USB_PERMISSION);
+        permIntent.setPackage(context.getPackageName());
+        mPermissionIntent = PendingIntent.getBroadcast(context, 0, permIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
         IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
         ContextCompat.registerReceiver(context, this.mUsbPermissionReceiver, filter, ContextCompat.RECEIVER_EXPORTED);
@@ -131,14 +137,10 @@ public class SmartCardDevice {
         for (String key : deviceList.keySet()) {
             if (nameContain.isEmpty()) {
                 device = deviceList.get(key);
-//                Log.d(TAG, "Found device: " + device.getProductName());
                 break;
             }
-//            Log.d(TAG, "Search device contain name [" + nameContain + "] in [" + deviceList.get(key).getProductName() + "] [" + deviceList.get(key).getDeviceName() + "]");
-//            Log.d(TAG, "Detail ==> [" + deviceList.get(key) +"]");
             if (deviceList.get(key).getProductName().contains(nameContain)) {
                 device = deviceList.get(key);
-//                Log.d(TAG, "Found device: " + device.getProductName());
                 break;
             }
         }
@@ -182,16 +184,84 @@ public class SmartCardDevice {
         this.started = true;
 
         if (manager != null) {
-            Log.d(TAG, "Start request permission");
-            manager.requestPermission(device, mPermissionIntent);
+            // If permission was already granted (e.g. user chose "Always allow" previously),
+            // skip the dialog entirely and go straight to OnReady.
+            if (manager.hasPermission(device)) {
+                Log.d(TAG, "Permission already granted, opening device directly");
+                openDeviceWithPermission(manager);
+                return;
+            }
+            if (!this.havePermission && !this.permissionRequested) {
+                Log.d(TAG, "Start request permission");
+                this.permissionRequested = true;
+                manager.requestPermission(device, mPermissionIntent);
+            }
         }
     }
 
     public void requestPermission() {
         UsbManager manager = (UsbManager)this.context.getSystemService(Context.USB_SERVICE);
         if (manager != null) {
-            Log.d(TAG, "Start request permission");
-            manager.requestPermission(device, mPermissionIntent);
+            // If permission was already granted, open device directly without showing dialog.
+            if (manager.hasPermission(device)) {
+                Log.d(TAG, "Permission already granted, opening device directly");
+                openDeviceWithPermission(manager);
+                return;
+            }
+            if (!this.havePermission && !this.permissionRequested) {
+                Log.d(TAG, "Start request permission");
+                this.permissionRequested = true;
+                manager.requestPermission(device, mPermissionIntent);
+            } else {
+                Log.d(TAG, "Permission already granted or already requested, skipping");
+            }
+        }
+    }
+
+    private void openDeviceWithPermission(UsbManager manager) {
+        try {
+            UsbInterface intf = device.getInterface(infIndex);
+            UsbEndpoint ep0 = intf.getEndpoint(endpointInputIndex);
+            UsbEndpoint ep1 = intf.getEndpoint(endpointOutputIndex);
+
+            UsbDeviceConnection conn = manager.openDevice(device);
+            if (conn == null) {
+                Log.d(TAG, "openDeviceWithPermission: openDevice returned null");
+                if (this.eventCallback != null) {
+                    this.eventCallback.OnDetached(this);
+                }
+                return;
+            }
+
+            this.deviceConnection = conn;
+            this.deviceInterface = intf;
+
+            if (ep0.getDirection() == android.hardware.usb.UsbConstants.USB_DIR_IN) {
+                this.inputEndpoint = ep0;
+                this.outputEndpoint = ep1;
+            } else {
+                this.inputEndpoint = ep1;
+                this.outputEndpoint = ep0;
+            }
+
+            this.havePermission = true;
+            this.stopped = false;
+            this.permissionRequested = false;
+
+            if (this.eventCallback != null) {
+                this.eventCallback.OnReady(this);
+            }
+
+            if (!this.deviceDetachedRegister) {
+                IntentFilter filter = new IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED);
+                this.context.registerReceiver(this.mUsbDetachedReceiver, filter);
+                this.deviceDetachedRegister = true;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "openDeviceWithPermission failed: " + e.getMessage(), e);
+            if (this.eventCallback != null) {
+                this.eventCallback.OnDetached(this);
+            }
         }
     }
 
@@ -201,8 +271,8 @@ public class SmartCardDevice {
             this.stopped = true;
         }
         this.started = false;
-
         this.havePermission = false;
+        this.permissionRequested = false;
     }
 
     public String getDeviceProductName() {
@@ -339,6 +409,7 @@ public class SmartCardDevice {
 
                             SmartCardDevice.this.havePermission = true;
                             SmartCardDevice.this.stopped = false;
+                            SmartCardDevice.this.permissionRequested = false;
 
                             if (SmartCardDevice.this.eventCallback != null) {
                                 SmartCardDevice.this.eventCallback.OnReady(SmartCardDevice.this);

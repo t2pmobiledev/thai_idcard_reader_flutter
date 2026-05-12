@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ACS vendor-only entry: matches ALL ACS products (vendorId 1839 = 0x072F) -->
+    <usb-device vendor-id="1839" />
+
+    <!-- ACR122U -->
+    <usb-device vendor-id="1839" product-id="8704" />
+
+    <!-- ACR1281U / ACR39U -->
+    <usb-device vendor-id="1839" product-id="8730" />
+
+    <!-- Generic EMV Smartcard Reader vendor-only entry: matches ALL-->
+    <usb-device vendor-id="11491" />
+
+    <!-- Generic EMV Smartcard Reader (vendorId 11491 = 0x2CE3) -->
+    <usb-device vendor-id="11491" product-id="38243" />
+</resources>

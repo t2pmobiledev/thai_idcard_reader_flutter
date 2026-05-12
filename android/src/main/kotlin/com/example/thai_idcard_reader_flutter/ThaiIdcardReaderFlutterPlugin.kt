@@ -165,6 +165,9 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
   private fun readCardReader(result: Result) {
     try {
       // Step 1: Find the device if not already found
+      // Guard: only create a new SmartCardDevice if one doesn't exist yet.
+      // The usbReceiver may have already created one via getSmartCardDevice(),
+      // so we must not create a second instance (which would trigger a duplicate permission dialog).
       if (smartCardDevice == null) {
         smartCardDevice = SmartCardDevice.getSmartCardDevice(
           applicationContext!!,
