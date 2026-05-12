@@ -23,10 +23,28 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   ThaiIDCard? _data;
   var _error;
-  UsbDevice? _device;
-  var _card;
-  StreamSubscription? subscription;
-  final List _idCardType = [
+  String? _rawResponse;
+  bool _loading = false;
+  bool _initializing = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initDevice();
+  }
+
+  Future<void> _initDevice() async {
+    // Trigger getInfo once to initialize the SmartCardDevice and request USB permission.
+    // We ignore the result — this just warms up the native side.
+    try {
+      await ThaiIdcardReaderFlutter.read();
+    } catch (_) {}
+    setState(() {
+      _initializing = false;
+    });
+  }
+
+  final List<String> _idCardType = [
     ThaiIDType.cid,
     ThaiIDType.photo,
     ThaiIDType.nameTH,
@@ -36,63 +54,30 @@ class _MyAppState extends State<MyApp> {
     ThaiIDType.address,
     ThaiIDType.issueDate,
     ThaiIDType.expireDate,
+    ThaiIDType.laserID,
   ];
   List<String> selectedTypes = [];
 
-  @override
-  void initState() {
-    super.initState();
-    ThaiIdcardReaderFlutter.deviceHandlerStream.listen(_onUSB);
-  }
-
-  void _onUSB(usbEvent) {
-    try {
-      if (usbEvent.hasPermission) {
-        subscription =
-            ThaiIdcardReaderFlutter.cardHandlerStream.listen(_onData);
-      } else {
-        if (subscription == null) {
-          subscription?.cancel();
-          subscription = null;
-        }
-        _clear();
-      }
-      setState(() {
-        _device = usbEvent;
-      });
-    } catch (e) {
-      setState(() {
-        _error = "_onUSB " + e.toString();
-      });
-    }
-  }
-
-  void _onData(readerEvent) {
-    try {
-      setState(() {
-        _card = readerEvent;
-      });
-      if (readerEvent.isReady) {
-        readCard(only: selectedTypes);
-      } else {
-        _clear();
-      }
-    } catch (e) {
-      setState(() {
-        _error = "_onData " + e.toString();
-      });
-    }
-  }
-
   readCard({List<String> only = const []}) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+      _data = null;
+      _rawResponse = null;
+    });
     try {
       var response = await ThaiIdcardReaderFlutter.read(only: only);
       setState(() {
         _data = response;
+        _rawResponse = response.isError()
+            ? 'code: ${response.code} | ${response.message}'
+            : null;
+        _loading = false;
       });
     } catch (e) {
       setState(() {
         _error = 'ERR readCard $e';
+        _loading = false;
       });
     }
   }
@@ -110,8 +95,12 @@ class _MyAppState extends State<MyApp> {
   _clear() {
     setState(() {
       _data = null;
+      _error = null;
+      _rawResponse = null;
     });
   }
+
+  bool get _showReadButton => _data == null && !_loading;
 
   @override
   Widget build(BuildContext context) {
@@ -119,68 +108,110 @@ class _MyAppState extends State<MyApp> {
       home: Scaffold(
         appBar: AppBar(
           title: const Text('Thai ID Card Reader'),
+          actions: [
+            if (_data != null)
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: _clear,
+                tooltip: 'Clear',
+              ),
+          ],
         ),
         body: SingleChildScrollView(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              if (_device != null)
-                UsbDeviceCard(
-                  device: _device!,
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Text(
+                    _error.toString(),
+                    style: const TextStyle(color: Colors.red),
+                  ),
                 ),
-              if (_card != null) Text(_card.toString()),
-              if (_device == null || !_device!.isAttached) ...[
-                const EmptyHeader(
-                  text: 'เสียบเครื่องอ่านบัตรก่อน',
+              if (_rawResponse != null)
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Card(
+                    color: Colors.orange.shade50,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Text(
+                        _rawResponse!,
+                        style: const TextStyle(color: Colors.deepOrange, fontSize: 14),
+                      ),
+                    ),
+                  ),
                 ),
-              ],
-              if (_error != null) Text(_error.toString()),
-              if (_data == null &&
-                  (_device != null && _device!.hasPermission)) ...[
+              if (_showReadButton) ...[
                 const EmptyHeader(
                   icon: Icons.credit_card,
-                  text: 'เสียบบัตรประชาชนได้เลย',
+                  text: 'เสียบบัตรประชาชนแล้วกดอ่าน',
                 ),
-                SizedBox(
-                  height: 200,
-                  child: Wrap(children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Checkbox(
-                            value: selectedTypes.isEmpty,
-                            onChanged: (val) {
-                              setState(() {
-                                if (selectedTypes.isNotEmpty) {
-                                  selectedTypes = [];
-                                }
-                              });
-                            }),
-                        const Text('readAll'),
-                      ],
-                    ),
-                    for (var ea in _idCardType)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: SizedBox(
+                    height: 220,
+                    child: Wrap(children: [
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Checkbox(
-                              value: selectedTypes.contains(ea),
+                              value: selectedTypes.isEmpty,
                               onChanged: (val) {
-                                print(ea);
                                 setState(() {
-                                  if (selectedTypes.contains(ea)) {
-                                    selectedTypes.remove(ea);
-                                  } else {
-                                    selectedTypes.add(ea);
+                                  if (selectedTypes.isNotEmpty) {
+                                    selectedTypes = [];
                                   }
                                 });
                               }),
-                          Text('$ea'),
+                          const Text('readAll'),
                         ],
                       ),
-                  ]),
+                      for (var ea in _idCardType)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Checkbox(
+                                value: selectedTypes.contains(ea),
+                                onChanged: (val) {
+                                  setState(() {
+                                    if (selectedTypes.contains(ea)) {
+                                      selectedTypes.remove(ea);
+                                    } else {
+                                      selectedTypes.add(ea);
+                                    }
+                                  });
+                                }),
+                            Text('$ea'),
+                          ],
+                        ),
+                    ]),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.credit_card),
+                    label: const Text('อ่านบัตร', style: TextStyle(fontSize: 20)),
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(56),
+                    ),
+                    onPressed: () => readCard(only: selectedTypes),
+                  ),
                 ),
               ],
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.all(32.0),
+                  child: Column(
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 16),
+                      Text('กำลังอ่านบัตร...', style: TextStyle(fontSize: 18)),
+                    ],
+                  ),
+                ),
               if (_data != null) ...[
                 const Padding(padding: EdgeInsets.all(8.0)),
                 if (_data!.photo.isNotEmpty)
@@ -223,18 +254,14 @@ class _MyAppState extends State<MyApp> {
                       title: 'วันหมดอายุ',
                       value:
                           '${_data!.expireDate.toString()}\n${formattedDate(_data!.expireDate)}'),
+                if (_data!.laserID != null)
+                  DisplayInfo(title: 'Laser ID', value: _data!.laserID!),
               ],
             ],
           ),
         ),
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    subscription?.cancel();
-    super.dispose();
   }
 }
 
@@ -251,7 +278,7 @@ class EmptyHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
         child: SizedBox(
-            height: 300,
+            height: 200,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -264,48 +291,12 @@ class EmptyHeader extends StatelessWidget {
                   text ?? 'Empty',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    fontSize: 32,
+                    fontSize: 28,
                     fontWeight: FontWeight.bold,
                   ),
                 )),
               ],
             )));
-  }
-}
-
-class UsbDeviceCard extends StatelessWidget {
-  final UsbDevice device;
-  const UsbDeviceCard({
-    Key? key,
-    required this.device,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Opacity(
-      opacity: device.isAttached ? 1.0 : 0.5,
-      child: Card(
-        child: ListTile(
-          leading: const Icon(
-            Icons.usb,
-            size: 32,
-          ),
-          title: Text('${device.manufacturerName} ${device.productName}'),
-          subtitle: Text("${device.identifier ?? ''}, ${device.vendorId ?? ''}, ${device.productId ?? ''}"),
-          trailing: Container(
-            padding: const EdgeInsets.all(8),
-            color: device!.hasPermission ? Colors.green : Colors.grey,
-            child: Text(
-                device!.hasPermission
-                    ? 'Listening'
-                    : (device!.isAttached ? 'Connected' : 'Disconnected'),
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                )),
-          ),
-        ),
-      ),
-    );
   }
 }
 

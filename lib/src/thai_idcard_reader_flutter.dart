@@ -27,6 +27,10 @@ class ThaiIdcardReaderFlutter with ThaiIDType {
         .map((dynamic event) => IDCardReader.fromMap(event));
   }
 
+  static Future<String> readRaw() async {
+    return await _channel.invokeMethod('getInfo').timeout(const Duration(seconds: 20));
+  }
+
   static Future<ThaiIDCard> read({List<String> only = const []}) async {
     // final String res = only.isNotEmpty
     //     ? await _channel.invokeMethod('read', {'selected': only})

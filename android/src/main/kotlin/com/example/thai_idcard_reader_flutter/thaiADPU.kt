@@ -1,5 +1,6 @@
 package com.example.thai_idcard_reader_flutter
 
+import android.util.Log
 import com.acs.smartcard.Reader
 import java.io.ByteArrayOutputStream
 import java.nio.charset.Charset
@@ -386,6 +387,41 @@ class ThaiADPU {
                                         0xFF.toByte()
                         )
 
+        // SELECT Extension Applet command (AID: A0 00 00 00 84 06 00 02)
+        val selectExtension =
+                        byteArrayOf(
+                                        0x00.toByte(),
+                                        0xA4.toByte(),
+                                        0x04.toByte(),
+                                        0x00.toByte(),
+                                        0x08.toByte(),
+                                        0xA0.toByte(),
+                                        0x00.toByte(),
+                                        0x00.toByte(),
+                                        0x00.toByte(),
+                                        0x84.toByte(),
+                                        0x06.toByte(),
+                                        0x00.toByte(),
+                                        0x02.toByte()
+                        )
+
+        // Read ADM data command
+        val laserIDCmd =
+                        byteArrayOf(
+                                        0x80.toByte(),
+                                        0x00.toByte(),
+                                        0x00.toByte(),
+                                        0x00.toByte()
+                        )
+        val laserIDGetdata =
+                        byteArrayOf(
+                                        0x00.toByte(),
+                                        0xC0.toByte(),
+                                        0x00.toByte(),
+                                        0x00.toByte(),
+                                        0x17.toByte()
+                        )
+
         val allDataList: Array<String> =
                         arrayOf(
                                         "cid",
@@ -397,7 +433,8 @@ class ThaiADPU {
                                         "cardIssuer",
                                         "issueDate",
                                         "expireDate",
-                                        "photo"
+                                        "photo",
+                                        "laserID"
                         )
 
         fun readAll(r: Reader): HashMap<String, Any> {
@@ -559,6 +596,46 @@ class ThaiADPU {
                         }
                         val photoBuffer: ByteArray = buffer.toByteArray()
                         response["photo"] = photoBuffer
+                }
+                if ("laserID" in reqList) {
+                        try {
+                                // Card reset + re-init before accessing Extension Applet
+                                try { r.power(slotNum, Reader.CARD_COLD_RESET) } catch (_: Exception) {}
+                                Thread.sleep(100)
+                                try { r.setProtocol(slotNum, Reader.PROTOCOL_T0) } catch (_: Exception) {}
+                                // SELECT Extension Applet (AID: A0 00 00 00 84 06 00 02)
+                                val selectExtResp = ByteArray(300)
+                                val selectExtLen = r.transmit(slotNum, selectExtension, selectExtension.size, selectExtResp, selectExtResp.size)
+                                val sw1 = selectExtResp[selectExtLen - 2]
+                                // Send laserIDCmd (80 00 00 00) — card may respond 6Cxx or 61xx
+                                val laserCmdResp = ByteArray(300)
+                                val laserCmdLen = r.transmit(slotNum, laserIDCmd, laserIDCmd.size, laserCmdResp, laserCmdResp.size)
+                                val sw1b = laserCmdResp[laserCmdLen - 2]
+                                val sw2b = laserCmdResp[laserCmdLen - 1]
+                                // Handle T=0 SW responses
+                                val finalCmd: ByteArray = when (sw1b) {
+                                        0x6C.toByte() -> byteArrayOf(0x80.toByte(), 0x00, 0x00, 0x00, sw2b) // retry with correct Le
+                                        0x61.toByte() -> byteArrayOf(0x00, 0xC0.toByte(), 0x00, 0x00, sw2b) // GET RESPONSE
+                                        else -> laserIDGetdata
+                                }
+                                responsLength = r.transmit(slotNum, finalCmd, finalCmd.size, respArray, respArray.size)
+                                if (responsLength >= 0x17 + 2) {
+                                        val laserBytes = respArray.copyOfRange(7, 23)
+                                        val laserStr = String(laserBytes, Charsets.US_ASCII)
+                                                .trimEnd('\u0000', ' ')
+                                        if (laserStr.isNotEmpty()) {
+                                                response["laserID"] = laserStr
+                                        }
+                                }
+                        } catch (_: Exception) {
+                                // laserID not added to response — non-fatal
+                        } finally {
+                                // Always SELECT main applet back to reset applet state
+                                try {
+                                        val mainAppletResp = ByteArray(300)
+                                        r.transmit(slotNum, select, select.size, mainAppletResp, mainAppletResp.size)
+                                } catch (_: Exception) {}
+                        }
                 }
                 return response
         }

@@ -101,6 +101,7 @@ class ThaiIDType {
   static String get expireDate => 'expireDate';
   static String get gender => 'gender';
   static String get photo => 'photo';
+  static String get laserID => 'laserID';
 }
 
 class ThaiIDCard {
@@ -119,6 +120,7 @@ class ThaiIDCard {
   String? expireDate;
   int? gender;
   List<int> photo;
+  String? laserID;
   ThaiIDCard({
     this.code,
     this.message,
@@ -135,6 +137,7 @@ class ThaiIDCard {
     this.expireDate,
     this.gender,
     this.photo = const [],
+    this.laserID,
   });
 
   Map<String, dynamic> toMap() {
@@ -152,6 +155,7 @@ class ThaiIDCard {
       'expireDate': expireDate,
       'gender': gender,
       'photo': photo,
+      'laserID': laserID,
     };
   }
 
@@ -225,6 +229,7 @@ class ThaiIDCard {
       gender:
           map['gender'] != null ? int.parse(map['gender'].split('')[0]) : null,
       photo: map['photo'] != null ? map['photo'].cast<int>() : [],
+      laserID: map['laserID'] as String?,
     );
   }
 

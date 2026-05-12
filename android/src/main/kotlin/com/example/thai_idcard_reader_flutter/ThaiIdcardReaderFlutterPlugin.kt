@@ -164,35 +164,63 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
 
   private fun readCardReader(result: Result) {
     try {
+      // Step 1: Find the device if not already found
       if (smartCardDevice == null) {
-        getSmartCardDevice()
-        if (smartCardDevice != null) {
-          val response = HashMap<String, Any>()
-          response.put("code", "009")
-          response.put("message", "Request permission")
-          result.success(JSONObject(response).toString())
-        } else {
-          val response = HashMap<String, Any>()
-          response.put("code", "004")
-          response.put("message", "Smart Card device not found")
-          result.success(JSONObject(response).toString())
-        }
+        smartCardDevice = SmartCardDevice.getSmartCardDevice(
+          applicationContext!!,
+          "",
+          object : SmartCardDevice.SmartCardDeviceEvent {
+            override fun OnReady(device: SmartCardDevice?) {
+              smartCardDevice = device
+              if (mReader?.isSupported(device?.device) ?: false) {
+                try {
+                  mReader?.open(device?.device)
+                  mReader?.setOnStateChangeListener(cardStateListener)
+                } catch (e: Exception) {
+                  Log.w("ThaiIdcard", "Cannot open reader: ${e.toString()}")
+                }
+              }
+            }
+            override fun OnDetached(device: SmartCardDevice?) {
+              smartCardDevice = null
+              mReader?.setOnStateChangeListener(null)
+              mReader?.close()
+            }
+          })
+      }
+
+      if (smartCardDevice == null) {
+        val response = HashMap<String, Any>()
+        response.put("code", "004")
+        response.put("message", "Smart Card device not found")
+        result.success(JSONObject(response).toString())
         return
       }
 
-      val havePermission = smartCardDevice?.havePermission ?: false
-      if (!havePermission) {
+      // Step 2: Check permission — request if not granted yet
+      if (!smartCardDevice!!.havePermission) {
+        smartCardDevice!!.requestPermission()
         val response = HashMap<String, Any>()
         response.put("code", "009")
-        response.put("message", "request permission")
+        response.put("message", "Permission required — please allow USB access and try again")
         result.success(JSONObject(response).toString())
-        smartCardDevice?.requestPermission()
         return
+      }
+
+      // Step 3: Open ACS reader if supported but not yet opened
+      if ((mReader?.isSupported(smartCardDevice!!.device) ?: false) && !(mReader?.isOpened ?: false)) {
+        try {
+          mReader?.open(smartCardDevice!!.device)
+          mReader?.setOnStateChangeListener(cardStateListener)
+          Thread.sleep(300)
+        } catch (e: Exception) {
+          Log.w("ThaiIdcard", "Cannot open reader: ${e.toString()}")
+        }
       }
 
       thread(start = true) {
         try {
-          if (mReader?.isSupported(smartCardDevice?.device) ?: false) {
+          if ((mReader?.isSupported(smartCardDevice?.device) ?: false) && (mReader?.isOpened ?: false)) {
             try {
               if (vendorSdkInfo != null) {
                 result.success(JSONObject(vendorSdkInfo).toString())
@@ -255,6 +283,17 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
           response.put("issueDate", info.IssueDate)
           response.put("expireDate", info.ExpireDate)
           response.put("photo", thaiSmartCard.bytePersonalPicture)
+          try {
+            val adm = thaiSmartCard.getChipCardADM()
+            val laserID: String? = adm?.LaserNumber
+                ?.trimEnd('\u0000', ' ')
+                ?.takeIf { it.isNotEmpty() }
+            if (laserID != null) {
+              response["laserID"] = laserID
+            }
+          } catch (_: Exception) {
+            // laserID absent from response → Flutter receives null
+          }
           result.success(JSONObject(response).toString())
         } catch (e: Exception) {
           val response = HashMap<String, Any>()
