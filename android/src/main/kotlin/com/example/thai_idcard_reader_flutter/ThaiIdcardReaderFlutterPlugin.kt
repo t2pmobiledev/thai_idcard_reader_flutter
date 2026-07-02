@@ -205,35 +205,7 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
                 result.success(JSONObject(vendorSdkInfo).toString())
                 return@thread
               }
-
-              // Wait for card to reach CARD_SPECIFIC state before reading.
-              // Without this, apdu.readAll() throws InvalidDeviceStateException
-              // when called right after the reader is opened.
-              val maxWaitMs = 5000L
-              val pollIntervalMs = 100L
-              var waited = 0L
-              while (waited < maxWaitMs) {
-                val state = try { mReader!!.getState(0) } catch (_: Exception) { Reader.CARD_UNKNOWN }
-                Log.d("ThaiIdcard", "Waiting for CARD_SPECIFIC, current state=$state")
-                if (state == Reader.CARD_SPECIFIC) break
-                Thread.sleep(pollIntervalMs)
-                waited += pollIntervalMs
-              }
-
-              val cardState = try { mReader!!.getState(0) } catch (_: Exception) { Reader.CARD_UNKNOWN }
-              if (cardState != Reader.CARD_SPECIFIC) {
-                if (retryCount < 1) {
-                  retryCount++
-                  readCardReader(result)
-                  return@thread
-                }
-                val response = HashMap<String, Any>()
-                response["code"] = "001"
-                response["message"] = "Smart Card not ready (state=$cardState). Please ensure the card is fully inserted."
-                result.success(JSONObject(response).toString())
-                return@thread
-              }
-
+              Thread.sleep(2000)
               val apdu = ThaiADPU()
               val res: HashMap<String, Any> = apdu.readAll(mReader!!)
               res.put("code", "000")
@@ -241,12 +213,6 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
               vendorSdkInfo = res
               result.success(JSONObject(vendorSdkInfo).toString())
             } catch (e: Exception) {
-              if (retryCount < 1) {
-                retryCount++
-                readCardReader(result)
-                return@thread
-              }
-
               val response = HashMap<String, Any>()
               response.put("code", "008")
               response.put("message", "${e.toString()}")
