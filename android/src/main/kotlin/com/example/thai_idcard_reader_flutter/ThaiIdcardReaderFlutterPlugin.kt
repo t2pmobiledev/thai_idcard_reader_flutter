@@ -198,14 +198,13 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
       }
 
       // Step 2: Check permission — request if not granted yet
-//      if (!smartCardDevice!!.havePermission) {
-//        smartCardDevice!!.requestPermission()
-//        val response = HashMap<String, Any>()
-//        response.put("code", "009")
-//        response.put("message", "Permission required — please allow USB access and try again")
-//        result.success(JSONObject(response).toString())
-//        return
-//      }
+      if (!smartCardDevice!!.havePermission) {
+        val response = HashMap<String, Any>()
+        response.put("code", "009")
+        response.put("message", "Permission required — please allow USB access and try again")
+        result.success(JSONObject(response).toString())
+        return
+      }
 
       // Step 3: Open ACS reader if supported but not yet opened
       if ((mReader?.isSupported(smartCardDevice!!.device) ?: false) && !(mReader?.isOpened ?: false)) {

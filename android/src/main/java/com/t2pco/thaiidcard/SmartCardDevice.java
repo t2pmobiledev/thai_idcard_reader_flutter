@@ -181,9 +181,11 @@ public class SmartCardDevice {
         }
         this.started = true;
 
-        if (manager != null) {
+        if (!manager.hasPermission(device)) {
             Log.d(TAG, "Start request permission");
             manager.requestPermission(device, mPermissionIntent);
+        } else  {
+            havePermission = true;
         }
     }
 
