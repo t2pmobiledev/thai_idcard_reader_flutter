@@ -83,13 +83,13 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
     usbManager = applicationContext?.getSystemService(Context.USB_SERVICE) as UsbManager
     mReader = Reader(usbManager)
 
-    val filter = IntentFilter(ACTION_USB_ATTACHED)
-    ContextCompat.registerReceiver(
-      applicationContext!!,
-      usbReceiver,
-      filter,
-      ContextCompat.RECEIVER_EXPORTED
-    )
+//    val filter = IntentFilter(ACTION_USB_ATTACHED)
+//    ContextCompat.registerReceiver(
+//      applicationContext!!,
+//      usbReceiver,
+//      filter,
+//      ContextCompat.RECEIVER_EXPORTED
+//    )
   }
 
   private fun getSmartCardDevice() {
@@ -140,7 +140,7 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
   }
 
   override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
-    applicationContext?.unregisterReceiver(usbReceiver)
+//    applicationContext?.unregisterReceiver(usbReceiver)
     channel.setMethodCallHandler(null)
     mReader?.setOnStateChangeListener(null)
     mReader?.close()
@@ -198,14 +198,14 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
       }
 
       // Step 2: Check permission — request if not granted yet
-      if (!smartCardDevice!!.havePermission) {
-        smartCardDevice!!.requestPermission()
-        val response = HashMap<String, Any>()
-        response.put("code", "009")
-        response.put("message", "Permission required — please allow USB access and try again")
-        result.success(JSONObject(response).toString())
-        return
-      }
+//      if (!smartCardDevice!!.havePermission) {
+//        smartCardDevice!!.requestPermission()
+//        val response = HashMap<String, Any>()
+//        response.put("code", "009")
+//        response.put("message", "Permission required — please allow USB access and try again")
+//        result.success(JSONObject(response).toString())
+//        return
+//      }
 
       // Step 3: Open ACS reader if supported but not yet opened
       if ((mReader?.isSupported(smartCardDevice!!.device) ?: false) && !(mReader?.isOpened ?: false)) {
@@ -226,6 +226,7 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
                 result.success(JSONObject(vendorSdkInfo).toString())
                 return@thread
               }
+              Thread.sleep(3000)
               val apdu = ThaiADPU()
               val res: HashMap<String, Any> = apdu.readAll(mReader!!)
               res.put("code", "000")
