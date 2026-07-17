@@ -264,6 +264,22 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
           response.put("expireDate", info.ExpireDate)
           response.put("photo", thaiSmartCard.bytePersonalPicture)
           try {
+            val chipId: String? = thaiSmartCard.getCardID()
+                ?.trimEnd('\u0000', ' ')
+                ?.takeIf { it.isNotEmpty() }
+            if (chipId != null) {
+              response["chipNo"] = chipId
+            }
+          } catch (_: Exception) {}
+          try {
+            val bp1: String? = thaiSmartCard.getBP1No()
+                ?.trimEnd('\u0000', ' ')
+                ?.takeIf { it.isNotEmpty() }
+            if (bp1 != null) {
+              response["bp1No"] = bp1
+            }
+          } catch (_: Exception) {}
+          try {
             val adm = thaiSmartCard.getChipCardADM()
             val laserID: String? = adm?.LaserNumber
                 ?.trimEnd('\u0000', ' ')

@@ -55,6 +55,8 @@ class _MyAppState extends State<MyApp> {
     ThaiIDType.issueDate,
     ThaiIDType.expireDate,
     ThaiIDType.laserID,
+    ThaiIDType.chipNo,
+    ThaiIDType.bp1No,
   ];
   List<String> selectedTypes = [];
 
@@ -138,7 +140,8 @@ class _MyAppState extends State<MyApp> {
                       padding: const EdgeInsets.all(12.0),
                       child: Text(
                         _rawResponse!,
-                        style: const TextStyle(color: Colors.deepOrange, fontSize: 14),
+                        style: const TextStyle(
+                            color: Colors.deepOrange, fontSize: 14),
                       ),
                     ),
                   ),
@@ -193,7 +196,8 @@ class _MyAppState extends State<MyApp> {
                   padding: const EdgeInsets.all(16.0),
                   child: ElevatedButton.icon(
                     icon: const Icon(Icons.credit_card),
-                    label: const Text('อ่านบัตร', style: TextStyle(fontSize: 20)),
+                    label:
+                        const Text('อ่านบัตร', style: TextStyle(fontSize: 20)),
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size.fromHeight(56),
                     ),
@@ -256,6 +260,11 @@ class _MyAppState extends State<MyApp> {
                           '${_data!.expireDate.toString()}\n${formattedDate(_data!.expireDate)}'),
                 if (_data!.laserID != null)
                   DisplayInfo(title: 'Laser ID', value: _data!.laserID!),
+                if (_data!.chipNo != null)
+                  DisplayInfo(title: 'Chip No', value: _data!.chipNo!),
+                if (_data!.bp1No != null)
+                  DisplayInfo(
+                      title: 'BP1 No (หมายเลขคำขอ)', value: _data!.bp1No!),
               ],
             ],
           ),

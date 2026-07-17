@@ -102,6 +102,8 @@ class ThaiIDType {
   static String get gender => 'gender';
   static String get photo => 'photo';
   static String get laserID => 'laserID';
+  static String get chipNo => 'chipNo';
+  static String get bp1No => 'bp1No';
 }
 
 class ThaiIDCard {
@@ -121,6 +123,8 @@ class ThaiIDCard {
   int? gender;
   List<int> photo;
   String? laserID;
+  String? chipNo;
+  String? bp1No;
   ThaiIDCard({
     this.code,
     this.message,
@@ -138,6 +142,8 @@ class ThaiIDCard {
     this.gender,
     this.photo = const [],
     this.laserID,
+    this.chipNo,
+    this.bp1No,
   });
 
   Map<String, dynamic> toMap() {
@@ -156,6 +162,8 @@ class ThaiIDCard {
       'gender': gender,
       'photo': photo,
       'laserID': laserID,
+      'chipNo': chipNo,
+      'bp1No': bp1No,
     };
   }
 
@@ -176,8 +184,10 @@ class ThaiIDCard {
 
     String removeWhitespaceAddr(str) {
       if (str.contains('#')) {
-        final rmSpaces = str.split('').where((ea) => ea != ' ').toList().join('');
-        final rmHashtags = rmSpaces.split('#').where((ea) => ea != '').toList().join(' ');
+        final rmSpaces =
+            str.split('').where((ea) => ea != ' ').toList().join('');
+        final rmHashtags =
+            rmSpaces.split('#').where((ea) => ea != '').toList().join(' ');
         return rmHashtags.substring(0, rmHashtags.length - 2);
       } else {
         return str.replaceAll(RegExp(r'\s+'), ' ');
@@ -230,6 +240,12 @@ class ThaiIDCard {
           map['gender'] != null ? int.parse(map['gender'].split('')[0]) : null,
       photo: map['photo'] != null ? map['photo'].cast<int>() : [],
       laserID: map['laserID'] as String?,
+      chipNo: map['chipNo'] != null
+          ? (map['chipNo'] as String).replaceAll('\u0000', '').trim()
+          : null,
+      bp1No: map['bp1No'] != null
+          ? (map['bp1No'] as String).replaceAll('\u0000', '').trim()
+          : null,
     );
   }
 

@@ -387,6 +387,44 @@ class ThaiADPU {
                                         0xFF.toByte()
                         )
 
+        // BP1 No / Request Number (offset 0x00E2, length 0x0B = 11 bytes in Storage Applet)
+        val bp1No =
+                        byteArrayOf(
+                                        0x80.toByte(),
+                                        0xB0.toByte(),
+                                        0x00.toByte(),
+                                        0xE2.toByte(),
+                                        0x02.toByte(),
+                                        0x00.toByte(),
+                                        0x0B.toByte()
+                        )
+        val bp1NoGetdata =
+                        byteArrayOf(
+                                        0x00.toByte(),
+                                        0xC0.toByte(),
+                                        0x00.toByte(),
+                                        0x00.toByte(),
+                                        0x0B.toByte()
+                        )
+
+        // SELECT Chip Data applet (no AID)
+        val selectChipData =
+                        byteArrayOf(
+                                        0x00.toByte(),
+                                        0xA4.toByte(),
+                                        0x04.toByte(),
+                                        0x00.toByte()
+                        )
+
+        // GET DATA command for Chip Serial Number (80 CA 9F 7F)
+        val chipNoCmd =
+                        byteArrayOf(
+                                        0x80.toByte(),
+                                        0xCA.toByte(),
+                                        0x9F.toByte(),
+                                        0x7F.toByte()
+                        )
+
         // SELECT Extension Applet command (AID: A0 00 00 00 84 06 00 02)
         val selectExtension =
                         byteArrayOf(
@@ -433,7 +471,9 @@ class ThaiADPU {
                                         "cardIssuer",
                                         "issueDate",
                                         "expireDate",
+                                        "bp1No",
                                         "photo",
+                                        "chipNo",
                                         "laserID"
                         )
 
@@ -574,6 +614,20 @@ class ThaiADPU {
                                 response.put("expireDate", it)
                         }
                 }
+                if ("bp1No" in reqList) {
+                        r.transmit(slotNum, bp1No, bp1No.size, respArray, respArray.size)
+                        responsLength =
+                                        r.transmit(
+                                                        slotNum,
+                                                        bp1NoGetdata,
+                                                        bp1NoGetdata.size,
+                                                        respArray,
+                                                        respArray.size
+                                        )
+                        byteArrayToHexString(respArray, 0, responsLength)?.let {
+                                response.put("bp1No", it)
+                        }
+                }
                 if ("photo" in reqList) {
                         val buffer = ByteArrayOutputStream()
                         for (i in photo.indices) {
@@ -596,6 +650,47 @@ class ThaiADPU {
                         }
                         val photoBuffer: ByteArray = buffer.toByteArray()
                         response["photo"] = photoBuffer
+                }
+                if ("chipNo" in reqList) {
+                        try {
+                                // Select Chip Data applet (no AID)
+                                val selectChipResp = ByteArray(300)
+                                val selectChipLen = r.transmit(slotNum, selectChipData, selectChipData.size, selectChipResp, selectChipResp.size)
+                                // Handle 61xx response
+                                if (selectChipLen >= 2 && selectChipResp[selectChipLen - 2] == 0x61.toByte()) {
+                                        val getResp = byteArrayOf(0x00, 0xC0.toByte(), 0x00, 0x00, selectChipResp[selectChipLen - 1])
+                                        r.transmit(slotNum, getResp, getResp.size, selectChipResp, selectChipResp.size)
+                                }
+                                // Send GET DATA: 80 CA 9F 7F
+                                val chipInfoResp = ByteArray(300)
+                                val chipInfoLen = r.transmit(slotNum, chipNoCmd, chipNoCmd.size, chipInfoResp, chipInfoResp.size)
+                                val chipSw1 = chipInfoResp[chipInfoLen - 2]
+                                val chipSw2 = chipInfoResp[chipInfoLen - 1]
+                                // Handle T=0 response
+                                val chipGetCmd: ByteArray = when (chipSw1) {
+                                        0x61.toByte() -> byteArrayOf(0x00, 0xC0.toByte(), 0x00, 0x00, chipSw2)
+                                        0x6C.toByte() -> byteArrayOf(0x80.toByte(), 0xCA.toByte(), 0x9F.toByte(), 0x7F.toByte(), chipSw2)
+                                        else -> byteArrayOf(0x00, 0xC0.toByte(), 0x00, 0x00, 0x2D)
+                                }
+                                val chipDataResp = ByteArray(300)
+                                val chipDataLen = r.transmit(slotNum, chipGetCmd, chipGetCmd.size, chipDataResp, chipDataResp.size)
+                                // Extract 8 bytes at position 13 → 16 hex digit string
+                                if (chipDataLen >= 21 + 2) {
+                                        val chipSerial = chipDataResp.copyOfRange(13, 21)
+                                        val chipHex = chipSerial.joinToString("") { String.format("%02x", it) }
+                                        if (chipHex.isNotEmpty()) {
+                                                response["chipNo"] = chipHex
+                                        }
+                                }
+                        } catch (_: Exception) {
+                                // chipNo not added — non-fatal
+                        } finally {
+                                // Re-select Storage Applet
+                                try {
+                                        val reselResp = ByteArray(300)
+                                        r.transmit(slotNum, select, select.size, reselResp, reselResp.size)
+                                } catch (_: Exception) {}
+                        }
                 }
                 if ("laserID" in reqList) {
                         try {

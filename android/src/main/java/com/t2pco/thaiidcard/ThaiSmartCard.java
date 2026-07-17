@@ -337,6 +337,35 @@ public final class ThaiSmartCard {
         public String LaserNumber;
     }
 
+    public String getBP1No() {
+        SmartCardMessage.DataBlock data;
+
+        if (!this.selectAppletStorageData()) {
+            Log.d(TAG, "selectAppletStorageData fail");
+            return null;
+        }
+
+        // BP1 No (Request Number) at offset 0x00E2 (226), length 0x0B (11 bytes)
+        byte[] requestMessage = new byte[]{(byte)0x80, (byte)0xb0, (byte)0x00, (byte)0xe2, (byte)0x02, (byte)0x00, (byte)0x0b};
+
+        if ((data = this.getCardData(requestMessage)) == null) {
+            Log.d(TAG, "Get BP1 No failed");
+            return null;
+        }
+
+        if (data.status != 0 || data.error != 0 || data.data.length < 0x0b + 2) {
+            Log.w(TAG, String.format("Invalid BP1 No response [%d][%d][%d]", data.status, data.error, data.data.length));
+            return null;
+        }
+
+        try {
+            return new String(Arrays.copyOfRange(data.data, 0, 0x0b), "TIS620").trim();
+        } catch (UnsupportedEncodingException e) {
+            Log.w(TAG, "Cannot decode TIS620 string for BP1No");
+            return null;
+        }
+    }
+
     public ChipCardADM getChipCardADM() {
         SmartCardMessage.DataBlock data;
         ChipCardADM chipCardADM;
