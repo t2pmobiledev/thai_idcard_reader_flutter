@@ -678,7 +678,7 @@ class ThaiADPU {
                                 if (chipDataLen >= 21 + 2) {
                                         val chipSerial = chipDataResp.copyOfRange(13, 21)
                                         val chipHex = chipSerial.joinToString("") { String.format("%02x", it) }
-                                        if (chipHex.isNotEmpty()) {
+                                        if (chipHex.isNotEmpty() && !chipHex.all { it == '0' }) {
                                                 response["chipNo"] = chipHex
                                         }
                                 }

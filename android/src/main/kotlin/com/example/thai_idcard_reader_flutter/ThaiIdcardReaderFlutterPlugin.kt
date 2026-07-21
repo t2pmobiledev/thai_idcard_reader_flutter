@@ -266,7 +266,7 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
           try {
             val chipId: String? = thaiSmartCard.getCardID()
                 ?.trimEnd('\u0000', ' ')
-                ?.takeIf { it.isNotEmpty() }
+                ?.takeIf { it.isNotEmpty() && !it.all { c -> c == '0' } }
             if (chipId != null) {
               response["chipNo"] = chipId
             }
