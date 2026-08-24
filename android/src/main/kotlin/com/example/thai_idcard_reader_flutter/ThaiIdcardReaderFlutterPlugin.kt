@@ -231,6 +231,22 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
             return@thread
           }
 
+          // Read chipNo FIRST — before selecting Storage Applet.
+          // The chip responds to GET DATA (80 CA 9F 7F) in its default state
+          // right after card insertion without needing an applet selection.
+          var chipId: String? = null
+          try {
+            chipId = thaiSmartCard.getCardID()
+                ?.trimEnd('\u0000', ' ')
+                ?.takeIf { it.isNotEmpty() && !it.all { c -> c == '0' } }
+            if (chipId == null) {
+              // Retry once
+              chipId = thaiSmartCard.getCardID()
+                  ?.trimEnd('\u0000', ' ')
+                  ?.takeIf { it.isNotEmpty() && !it.all { c -> c == '0' } }
+            }
+          } catch (_: Exception) {}
+
           val info: ThaiSmartCard.PersonalInformation? = thaiSmartCard.getPersonalInformation()
           if (info == null) {
             val response = HashMap<String, Any>()
@@ -263,14 +279,9 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
           response.put("issueDate", info.IssueDate)
           response.put("expireDate", info.ExpireDate)
           response.put("photo", thaiSmartCard.bytePersonalPicture)
-          try {
-            val chipId: String? = thaiSmartCard.getCardID()
-                ?.trimEnd('\u0000', ' ')
-                ?.takeIf { it.isNotEmpty() && !it.all { c -> c == '0' } }
-            if (chipId != null) {
-              response["chipNo"] = chipId
-            }
-          } catch (_: Exception) {}
+          if (chipId != null) {
+            response["chipNo"] = chipId
+          }
           try {
             val bp1: String? = thaiSmartCard.getBP1No()
                 ?.trimEnd('\u0000', ' ')

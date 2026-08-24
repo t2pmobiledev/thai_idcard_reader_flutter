@@ -487,6 +487,35 @@ class ThaiADPU {
                 var responsLength: Int
                 var slotNum = 0
                 resetCard(r)
+
+                // Read chipNo FIRST — right after reset, before selecting Storage Applet.
+                // The chip responds to GET DATA (80 CA 9F 7F) in its default state
+                // without needing an explicit applet selection.
+                if ("chipNo" in reqList) {
+                        try {
+                                r.setProtocol(slotNum, Reader.PROTOCOL_T0)
+                                // Send GET DATA: 80 CA 9F 7F directly (no SELECT needed)
+                                val chipInfoResp = ByteArray(300)
+                                val chipInfoLen = r.transmit(slotNum, chipNoCmd, chipNoCmd.size, chipInfoResp, chipInfoResp.size)
+                                val chipHex = extractChipSerial(chipInfoResp, chipInfoLen, r, slotNum)
+                                if (chipHex != null && chipHex.isNotEmpty() && !chipHex.all { it == '0' }) {
+                                        response["chipNo"] = chipHex
+                                } else {
+                                        // Retry once if all-zeros or empty
+                                        Thread.sleep(100)
+                                        val retryResp = ByteArray(300)
+                                        val retryLen = r.transmit(slotNum, chipNoCmd, chipNoCmd.size, retryResp, retryResp.size)
+                                        val retryHex = extractChipSerial(retryResp, retryLen, r, slotNum)
+                                        if (retryHex != null && retryHex.isNotEmpty() && !retryHex.all { it == '0' }) {
+                                                response["chipNo"] = retryHex
+                                        }
+                                }
+                        } catch (_: Exception) {
+                                // chipNo not added — non-fatal
+                        }
+                }
+
+                // Now select Storage Applet for reading personal data
                 setProtocol(r)
                 if ("cid" in reqList) {
                         r.transmit(slotNum, cid, cid.size, respArray, respArray.size)
@@ -651,89 +680,6 @@ class ThaiADPU {
                         val photoBuffer: ByteArray = buffer.toByteArray()
                         response["photo"] = photoBuffer
                 }
-                if ("chipNo" in reqList) {
-                        try {
-                                // Select Chip Data applet (no AID)
-                                val selectChipResp = ByteArray(300)
-                                val selectChipLen = r.transmit(slotNum, selectChipData, selectChipData.size, selectChipResp, selectChipResp.size)
-                                // Handle 61xx response
-                                if (selectChipLen >= 2 && selectChipResp[selectChipLen - 2] == 0x61.toByte()) {
-                                        val getResp = byteArrayOf(0x00, 0xC0.toByte(), 0x00, 0x00, selectChipResp[selectChipLen - 1])
-                                        r.transmit(slotNum, getResp, getResp.size, selectChipResp, selectChipResp.size)
-                                }
-                                // Send GET DATA: 80 CA 9F 7F
-                                val chipInfoResp = ByteArray(300)
-                                val chipInfoLen = r.transmit(slotNum, chipNoCmd, chipNoCmd.size, chipInfoResp, chipInfoResp.size)
-                                val chipSw1 = chipInfoResp[chipInfoLen - 2]
-                                val chipSw2 = chipInfoResp[chipInfoLen - 1]
-
-                                // Determine where chip data lives based on SW1
-                                val chipRawData: ByteArray
-                                val chipRawLen: Int
-
-                                if (chipSw1 == 0x90.toByte() && chipSw2 == 0x00.toByte()) {
-                                        // SW=9000: data already in chipInfoResp, no GET RESPONSE needed
-                                        chipRawData = chipInfoResp
-                                        chipRawLen = chipInfoLen
-                                } else {
-                                        // Need to send a follow-up command
-                                        val chipGetCmd: ByteArray = when (chipSw1) {
-                                                0x61.toByte() -> byteArrayOf(0x00, 0xC0.toByte(), 0x00, 0x00, chipSw2)
-                                                0x6C.toByte() -> byteArrayOf(0x80.toByte(), 0xCA.toByte(), 0x9F.toByte(), 0x7F.toByte(), chipSw2)
-                                                else -> byteArrayOf(0x00, 0xC0.toByte(), 0x00, 0x00, 0x2D)
-                                        }
-                                        val chipDataResp = ByteArray(300)
-                                        val chipDataLen = r.transmit(slotNum, chipGetCmd, chipGetCmd.size, chipDataResp, chipDataResp.size)
-                                        chipRawData = chipDataResp
-                                        chipRawLen = chipDataLen
-                                }
-
-                                // Parse TLV dynamically to extract chip serial number
-                                val dataLen = chipRawLen - 2 // exclude 2 status bytes
-                                if (dataLen >= 21) {
-                                        var offset = 0
-                                        // Skip Tag bytes (9F7F = multi-byte tag, or single-byte)
-                                        if (offset < dataLen && (chipRawData[offset].toInt() and 0x1F) == 0x1F) {
-                                                // Multi-byte tag (e.g. 9F 7F)
-                                                offset++ // skip first tag byte
-                                                while (offset < dataLen && (chipRawData[offset].toInt() and 0x80) != 0) {
-                                                        offset++ // skip subsequent tag bytes
-                                                }
-                                                offset++ // skip last tag byte
-                                        } else if (offset < dataLen) {
-                                                offset++ // single-byte tag
-                                        }
-                                        // Read Length field
-                                        if (offset < dataLen) {
-                                                if ((chipRawData[offset].toInt() and 0x80) != 0) {
-                                                        // Multi-byte length (81 xx or 82 xx xx)
-                                                        val lenBytes = chipRawData[offset].toInt() and 0x7F
-                                                        offset += 1 + lenBytes
-                                                } else {
-                                                        offset++ // single-byte length
-                                                }
-                                        }
-                                        // Chip serial is 8 bytes at relative offset 10 within Value
-                                        val serialOffset = offset + 10
-                                        val extractOffset = if (serialOffset + 8 <= dataLen) serialOffset else 13
-                                        if (extractOffset + 8 <= dataLen) {
-                                                val chipSerial = chipRawData.copyOfRange(extractOffset, extractOffset + 8)
-                                                val chipHex = chipSerial.joinToString("") { String.format("%02x", it) }
-                                                if (chipHex.isNotEmpty() && !chipHex.all { it == '0' }) {
-                                                        response["chipNo"] = chipHex
-                                                }
-                                        }
-                                }
-                        } catch (_: Exception) {
-                                // chipNo not added — non-fatal
-                        } finally {
-                                // Re-select Storage Applet
-                                try {
-                                        val reselResp = ByteArray(300)
-                                        r.transmit(slotNum, select, select.size, reselResp, reselResp.size)
-                                } catch (_: Exception) {}
-                        }
-                }
                 if ("laserID" in reqList) {
                         try {
                                 // Card reset + re-init before accessing Extension Applet
@@ -775,6 +721,71 @@ class ThaiADPU {
                         }
                 }
                 return response
+        }
+
+        /**
+         * Extracts chip serial number from a GET DATA (80 CA 9F 7F) response.
+         * Handles SW=9000 (data inline), SW=61xx (GET RESPONSE), SW=6Cxx (retry with Le).
+         * Parses TLV dynamically with fallback to hardcoded offset 13.
+         */
+        private fun extractChipSerial(chipInfoResp: ByteArray, chipInfoLen: Int, r: Reader, slotNum: Int): String? {
+                val chipSw1 = chipInfoResp[chipInfoLen - 2]
+                val chipSw2 = chipInfoResp[chipInfoLen - 1]
+
+                val chipRawData: ByteArray
+                val chipRawLen: Int
+
+                if (chipSw1 == 0x90.toByte() && chipSw2 == 0x00.toByte()) {
+                        // SW=9000: data already in response
+                        chipRawData = chipInfoResp
+                        chipRawLen = chipInfoLen
+                } else if (chipSw1 == 0x61.toByte() || chipSw1 == 0x6C.toByte()) {
+                        // Need follow-up command
+                        val chipGetCmd: ByteArray = when (chipSw1) {
+                                0x61.toByte() -> byteArrayOf(0x00, 0xC0.toByte(), 0x00, 0x00, chipSw2)
+                                else -> byteArrayOf(0x80.toByte(), 0xCA.toByte(), 0x9F.toByte(), 0x7F.toByte(), chipSw2)
+                        }
+                        val chipDataResp = ByteArray(300)
+                        val chipDataLen = r.transmit(slotNum, chipGetCmd, chipGetCmd.size, chipDataResp, chipDataResp.size)
+                        chipRawData = chipDataResp
+                        chipRawLen = chipDataLen
+                } else {
+                        // Unknown SW — cannot extract
+                        return null
+                }
+
+                // Parse TLV dynamically to extract chip serial number
+                val dataLen = chipRawLen - 2
+                if (dataLen < 21) return null
+
+                var offset = 0
+                // Skip Tag bytes (9F7F = multi-byte tag)
+                if (offset < dataLen && (chipRawData[offset].toInt() and 0x1F) == 0x1F) {
+                        offset++
+                        while (offset < dataLen && (chipRawData[offset].toInt() and 0x80) != 0) {
+                                offset++
+                        }
+                        offset++
+                } else if (offset < dataLen) {
+                        offset++
+                }
+                // Read Length field
+                if (offset < dataLen) {
+                        if ((chipRawData[offset].toInt() and 0x80) != 0) {
+                                val lenBytes = chipRawData[offset].toInt() and 0x7F
+                                offset += 1 + lenBytes
+                        } else {
+                                offset++
+                        }
+                }
+                // Chip serial is 8 bytes at relative offset 10 within Value
+                val serialOffset = offset + 10
+                val extractOffset = if (serialOffset + 8 <= dataLen) serialOffset else 13
+                if (extractOffset + 8 <= dataLen) {
+                        val chipSerial = chipRawData.copyOfRange(extractOffset, extractOffset + 8)
+                        return chipSerial.joinToString("") { String.format("%02x", it) }
+                }
+                return null
         }
 
         private fun resetCard(r: Reader) {
