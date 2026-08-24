@@ -666,20 +666,62 @@ class ThaiADPU {
                                 val chipInfoLen = r.transmit(slotNum, chipNoCmd, chipNoCmd.size, chipInfoResp, chipInfoResp.size)
                                 val chipSw1 = chipInfoResp[chipInfoLen - 2]
                                 val chipSw2 = chipInfoResp[chipInfoLen - 1]
-                                // Handle T=0 response
-                                val chipGetCmd: ByteArray = when (chipSw1) {
-                                        0x61.toByte() -> byteArrayOf(0x00, 0xC0.toByte(), 0x00, 0x00, chipSw2)
-                                        0x6C.toByte() -> byteArrayOf(0x80.toByte(), 0xCA.toByte(), 0x9F.toByte(), 0x7F.toByte(), chipSw2)
-                                        else -> byteArrayOf(0x00, 0xC0.toByte(), 0x00, 0x00, 0x2D)
+
+                                // Determine where chip data lives based on SW1
+                                val chipRawData: ByteArray
+                                val chipRawLen: Int
+
+                                if (chipSw1 == 0x90.toByte() && chipSw2 == 0x00.toByte()) {
+                                        // SW=9000: data already in chipInfoResp, no GET RESPONSE needed
+                                        chipRawData = chipInfoResp
+                                        chipRawLen = chipInfoLen
+                                } else {
+                                        // Need to send a follow-up command
+                                        val chipGetCmd: ByteArray = when (chipSw1) {
+                                                0x61.toByte() -> byteArrayOf(0x00, 0xC0.toByte(), 0x00, 0x00, chipSw2)
+                                                0x6C.toByte() -> byteArrayOf(0x80.toByte(), 0xCA.toByte(), 0x9F.toByte(), 0x7F.toByte(), chipSw2)
+                                                else -> byteArrayOf(0x00, 0xC0.toByte(), 0x00, 0x00, 0x2D)
+                                        }
+                                        val chipDataResp = ByteArray(300)
+                                        val chipDataLen = r.transmit(slotNum, chipGetCmd, chipGetCmd.size, chipDataResp, chipDataResp.size)
+                                        chipRawData = chipDataResp
+                                        chipRawLen = chipDataLen
                                 }
-                                val chipDataResp = ByteArray(300)
-                                val chipDataLen = r.transmit(slotNum, chipGetCmd, chipGetCmd.size, chipDataResp, chipDataResp.size)
-                                // Extract 8 bytes at position 13 → 16 hex digit string
-                                if (chipDataLen >= 21 + 2) {
-                                        val chipSerial = chipDataResp.copyOfRange(13, 21)
-                                        val chipHex = chipSerial.joinToString("") { String.format("%02x", it) }
-                                        if (chipHex.isNotEmpty() && !chipHex.all { it == '0' }) {
-                                                response["chipNo"] = chipHex
+
+                                // Parse TLV dynamically to extract chip serial number
+                                val dataLen = chipRawLen - 2 // exclude 2 status bytes
+                                if (dataLen >= 21) {
+                                        var offset = 0
+                                        // Skip Tag bytes (9F7F = multi-byte tag, or single-byte)
+                                        if (offset < dataLen && (chipRawData[offset].toInt() and 0x1F) == 0x1F) {
+                                                // Multi-byte tag (e.g. 9F 7F)
+                                                offset++ // skip first tag byte
+                                                while (offset < dataLen && (chipRawData[offset].toInt() and 0x80) != 0) {
+                                                        offset++ // skip subsequent tag bytes
+                                                }
+                                                offset++ // skip last tag byte
+                                        } else if (offset < dataLen) {
+                                                offset++ // single-byte tag
+                                        }
+                                        // Read Length field
+                                        if (offset < dataLen) {
+                                                if ((chipRawData[offset].toInt() and 0x80) != 0) {
+                                                        // Multi-byte length (81 xx or 82 xx xx)
+                                                        val lenBytes = chipRawData[offset].toInt() and 0x7F
+                                                        offset += 1 + lenBytes
+                                                } else {
+                                                        offset++ // single-byte length
+                                                }
+                                        }
+                                        // Chip serial is 8 bytes at relative offset 10 within Value
+                                        val serialOffset = offset + 10
+                                        val extractOffset = if (serialOffset + 8 <= dataLen) serialOffset else 13
+                                        if (extractOffset + 8 <= dataLen) {
+                                                val chipSerial = chipRawData.copyOfRange(extractOffset, extractOffset + 8)
+                                                val chipHex = chipSerial.joinToString("") { String.format("%02x", it) }
+                                                if (chipHex.isNotEmpty() && !chipHex.all { it == '0' }) {
+                                                        response["chipNo"] = chipHex
+                                                }
                                         }
                                 }
                         } catch (_: Exception) {

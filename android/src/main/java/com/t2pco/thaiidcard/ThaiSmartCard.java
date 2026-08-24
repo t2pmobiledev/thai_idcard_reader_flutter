@@ -178,12 +178,53 @@ public final class ThaiSmartCard {
             return null;
         }
 
-        if (data.status != 0 || data.error != 0 || data.data.length != 45 + 2) {
+        if (data.status != 0 || data.error != 0 || data.data.length < 21 + 2) {
             Log.w(TAG, String.format("Invalid chip card information [%d][%d][%d][%s]", data.status, data.error, data.data.length, this.byteArrayToHexString(data.data)));
             return null;
         }
 
-        return this.byteArrayToHexString(data.data, 13, 8);
+        // Parse TLV dynamically to find chip serial number
+        // Response structure: Tag(9F7F) + Length + Value (containing chip serial at relative offset)
+        int offset = 0;
+        byte[] raw = data.data;
+        int dataLen = raw.length - 2; // exclude 2 status bytes at end
+
+        // Skip Tag bytes (9F7F = 2 bytes, or single-byte tag)
+        if (offset < dataLen && (raw[offset] & 0x1F) == 0x1F) {
+            // Multi-byte tag (e.g. 9F 7F)
+            offset++; // skip first tag byte
+            while (offset < dataLen && (raw[offset] & 0x80) != 0) {
+                offset++; // skip subsequent tag bytes with high bit set
+            }
+            offset++; // skip last tag byte
+        } else if (offset < dataLen) {
+            offset++; // single-byte tag
+        }
+
+        // Read Length field
+        if (offset < dataLen) {
+            if ((raw[offset] & 0x80) != 0) {
+                // Multi-byte length (81 xx or 82 xx xx)
+                int lenBytes = raw[offset] & 0x7F;
+                offset += 1 + lenBytes;
+            } else {
+                offset++; // single-byte length
+            }
+        }
+
+        // Now offset points to the start of the Value.
+        // Chip serial is 8 bytes at relative offset 10 within the Value.
+        int serialOffset = offset + 10;
+        if (serialOffset + 8 <= dataLen) {
+            return this.byteArrayToHexString(raw, serialOffset, 8);
+        }
+
+        // Fallback: try hardcoded offset 13 if TLV parsing gives unexpected result
+        if (13 + 8 <= dataLen) {
+            return this.byteArrayToHexString(raw, 13, 8);
+        }
+
+        return null;
     }
 
     public class PersonalInformation {
