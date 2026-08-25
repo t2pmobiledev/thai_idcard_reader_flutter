@@ -131,6 +131,7 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
       }
       "getInfo" -> {
         retryCount = 0;
+        vendorSdkInfo = null
         readCardReader(result)
       }
       else -> result.notImplemented()
