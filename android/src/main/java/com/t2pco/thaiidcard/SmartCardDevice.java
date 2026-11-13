@@ -37,6 +37,7 @@ public class SmartCardDevice {
     private boolean started = false;
     private boolean deviceDetachedRegister = false;
     private boolean permissionRequested = false;
+    private boolean permissionReceiverRegistered = false;
 
     private SmartCardDeviceEvent eventCallback = null;
 
@@ -54,15 +55,41 @@ public class SmartCardDevice {
         this.endpointOutputIndex = endpointOutputIndex;
         this.eventCallback = eventCallback;
 
-        // Must use getActivity() (not getBroadcast()) so Android can associate the permission
-        // with the app's Activity that has the USB_DEVICE_ATTACHED intent-filter — this is
-        // what causes the "Always allow from this app" checkbox to appear in the dialog.
+        // Runtime permission request via broadcast. The intent is explicit (setPackage) and the
+        // receiver is not exported, so only the system / this app can deliver the result.
+        // The grant result is read back with UsbManager.hasPermission() instead of intent extras,
+        // because FLAG_IMMUTABLE prevents the system from filling EXTRA_PERMISSION_GRANTED.
         Intent permIntent = new Intent(ACTION_USB_PERMISSION);
         permIntent.setPackage(context.getPackageName());
         mPermissionIntent = PendingIntent.getBroadcast(context, 0, permIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+    }
 
+    private void registerPermissionReceiver() {
+        if (this.permissionReceiverRegistered) {
+            return;
+        }
         IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
-        ContextCompat.registerReceiver(context, this.mUsbPermissionReceiver, filter, ContextCompat.RECEIVER_EXPORTED);
+        ContextCompat.registerReceiver(this.context, this.mUsbPermissionReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
+        this.permissionReceiverRegistered = true;
+    }
+
+    private void unregisterPermissionReceiver() {
+        if (!this.permissionReceiverRegistered) {
+            return;
+        }
+        try {
+            this.context.unregisterReceiver(this.mUsbPermissionReceiver);
+        } catch (IllegalArgumentException e) {
+            Log.w(TAG, "Permission receiver was not registered");
+        }
+        this.permissionReceiverRegistered = false;
+    }
+
+    private void requestUsbPermission(UsbManager manager) {
+        Log.d(TAG, "Start request permission");
+        registerPermissionReceiver();
+        this.permissionRequested = true;
+        manager.requestPermission(device, mPermissionIntent);
     }
 
     @Override
@@ -74,6 +101,8 @@ public class SmartCardDevice {
     public interface SmartCardDeviceEvent {
         void OnReady(SmartCardDevice device);
         void OnDetached(SmartCardDevice device);
+        /** Called when the user denies (or dismisses) the USB permission dialog. */
+        default void OnPermissionDenied(SmartCardDevice device) {}
     }
 
     public static SmartCardDevice getSmartCardDevice(Context context, String nameContain, int infIndex, int endpointInputIndex, int endpointOutputIndex, SmartCardDeviceEvent eventCallback) {
@@ -184,19 +213,21 @@ public class SmartCardDevice {
         this.started = true;
 
         if (manager != null) {
-            // If permission was already granted (e.g. user chose "Always allow" previously),
-            // skip the dialog entirely and go straight to OnReady.
+            // If permission was already granted in this session, skip the dialog and go
+            // straight to OnReady.
             if (manager.hasPermission(device)) {
                 Log.d(TAG, "Permission already granted, opening device directly");
                 openDeviceWithPermission(manager);
                 return;
             }
             if (!this.havePermission && !this.permissionRequested) {
-                Log.d(TAG, "Start request permission");
-                this.permissionRequested = true;
-                manager.requestPermission(device, mPermissionIntent);
+                requestUsbPermission(manager);
             }
         }
+    }
+
+    public boolean isPermissionRequested() {
+        return this.permissionRequested;
     }
 
     public void requestPermission() {
@@ -209,9 +240,7 @@ public class SmartCardDevice {
                 return;
             }
             if (!this.havePermission && !this.permissionRequested) {
-                Log.d(TAG, "Start request permission");
-                this.permissionRequested = true;
-                manager.requestPermission(device, mPermissionIntent);
+                requestUsbPermission(manager);
             } else {
                 Log.d(TAG, "Permission already granted or already requested, skipping");
             }
@@ -219,10 +248,20 @@ public class SmartCardDevice {
     }
 
     private void openDeviceWithPermission(UsbManager manager) {
+        // Permission flow is finished (granted) — the receiver is no longer needed.
+        unregisterPermissionReceiver();
+        this.permissionRequested = false;
         try {
             UsbInterface intf = device.getInterface(infIndex);
-            UsbEndpoint ep0 = intf.getEndpoint(endpointInputIndex);
-            UsbEndpoint ep1 = intf.getEndpoint(endpointOutputIndex);
+            UsbEndpoint ep0 = (intf == null) ? null : intf.getEndpoint(endpointInputIndex);
+            UsbEndpoint ep1 = (intf == null) ? null : intf.getEndpoint(endpointOutputIndex);
+            if (intf == null || ep0 == null || ep1 == null) {
+                Log.d(TAG, "openDeviceWithPermission: invalid USB interface or endpoint");
+                if (this.eventCallback != null) {
+                    this.eventCallback.OnDetached(this);
+                }
+                return;
+            }
 
             UsbDeviceConnection conn = manager.openDevice(device);
             if (conn == null) {
@@ -273,6 +312,7 @@ public class SmartCardDevice {
         this.started = false;
         this.havePermission = false;
         this.permissionRequested = false;
+        unregisterPermissionReceiver();
     }
 
     public String getDeviceProductName() {
@@ -350,82 +390,33 @@ public class SmartCardDevice {
     private final BroadcastReceiver mUsbPermissionReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            String action = intent.getAction();
-            UsbManager manager;
-
-            if (ACTION_USB_PERMISSION.equals(action)) {
-                Log.d(TAG, "USB permission broadcast received");
-                synchronized (this) {
-                    try {
-                        UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
-                        device = (device == null) ? SmartCardDevice.this.device : device;
-                        if (device != null && device.getDeviceName().equals(SmartCardDevice.this.device.getDeviceName())) {
-                            manager = (UsbManager)context.getSystemService(Context.USB_SERVICE);
-                            if (manager == null) {
-                                Log.d(TAG,"USB manager not found");
-                                return;
-                            }
-
-                            SmartCardDevice.this.deviceConnection = manager.openDevice(device);
-
-                            if (SmartCardDevice.this.deviceConnection == null) {
-                                Log.d(TAG,"Invalid USB device connection");
-                                if (SmartCardDevice.this.eventCallback != null) {
-                                    SmartCardDevice.this.eventCallback.OnDetached(SmartCardDevice.this);
-                                }
-                                return;
-                            }
-
-                            SmartCardDevice.this.deviceInterface = device.getInterface(infIndex);
-                            UsbEndpoint ep0 = SmartCardDevice.this.deviceInterface.getEndpoint(endpointInputIndex);
-                            UsbEndpoint ep1 = SmartCardDevice.this.deviceInterface.getEndpoint(endpointOutputIndex);
-
-                            if (SmartCardDevice.this.deviceInterface == null || ep0 == null || ep1 == null) {
-                                Log.d(TAG,"Invalid USB device interface or endpoint");
-                                if (SmartCardDevice.this.eventCallback != null) {
-                                    SmartCardDevice.this.eventCallback.OnDetached(SmartCardDevice.this);
-                                }
-                                return;
-                            }
-
-                            // Assign endpoints based on direction, not index
-                            // USB_DIR_IN (128) = receive data FROM device
-                            // USB_DIR_OUT (0) = send data TO device
-                            if (ep0.getDirection() == android.hardware.usb.UsbConstants.USB_DIR_IN) {
-                                SmartCardDevice.this.inputEndpoint = ep0;
-                                SmartCardDevice.this.outputEndpoint = ep1;
-                            } else {
-                                SmartCardDevice.this.inputEndpoint = ep1;
-                                SmartCardDevice.this.outputEndpoint = ep0;
-                            }
-
-                            // Validate endpoint directions
-                            if (SmartCardDevice.this.inputEndpoint.getDirection() != android.hardware.usb.UsbConstants.USB_DIR_IN ||
-                                SmartCardDevice.this.outputEndpoint.getDirection() != android.hardware.usb.UsbConstants.USB_DIR_OUT) {
-                                Log.w(TAG, "Warning: Endpoint directions may be incorrect. IN dir=" +
-                                      SmartCardDevice.this.inputEndpoint.getDirection() + ", OUT dir=" +
-                                      SmartCardDevice.this.outputEndpoint.getDirection());
-                            }
-
-                            SmartCardDevice.this.havePermission = true;
-                            SmartCardDevice.this.stopped = false;
-                            SmartCardDevice.this.permissionRequested = false;
-
-                            if (SmartCardDevice.this.eventCallback != null) {
-                                SmartCardDevice.this.eventCallback.OnReady(SmartCardDevice.this);
-                            }
-
-                            if (!SmartCardDevice.this.deviceDetachedRegister) {
-                                IntentFilter filter = new IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED);
-                                SmartCardDevice.this.context.registerReceiver(SmartCardDevice.this.mUsbDetachedReceiver, filter);
-                                SmartCardDevice.this.deviceDetachedRegister = true;
-                            }
-
-                            SmartCardDevice.this.context.unregisterReceiver(SmartCardDevice.this.mUsbPermissionReceiver);
-                        }
-                    } catch (Exception e) {
-                        Log.e(TAG, "Error handling USB permission broadcast: " + e.getMessage(), e);
+            if (!ACTION_USB_PERMISSION.equals(intent.getAction())) {
+                return;
+            }
+            Log.d(TAG, "USB permission broadcast received");
+            synchronized (this) {
+                try {
+                    UsbManager manager = (UsbManager)context.getSystemService(Context.USB_SERVICE);
+                    if (manager == null) {
+                        Log.d(TAG, "USB manager not found");
+                        return;
                     }
+
+                    // EXTRA_DEVICE / EXTRA_PERMISSION_GRANTED are not filled into an immutable
+                    // PendingIntent, so rely on our own device and UsbManager.hasPermission().
+                    if (manager.hasPermission(SmartCardDevice.this.device)) {
+                        openDeviceWithPermission(manager);
+                    } else {
+                        Log.d(TAG, "USB permission denied");
+                        unregisterPermissionReceiver();
+                        SmartCardDevice.this.permissionRequested = false;
+                        SmartCardDevice.this.havePermission = false;
+                        if (SmartCardDevice.this.eventCallback != null) {
+                            SmartCardDevice.this.eventCallback.OnPermissionDenied(SmartCardDevice.this);
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error handling USB permission broadcast: " + e.getMessage(), e);
                 }
             }
         }

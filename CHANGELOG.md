@@ -1,3 +1,6 @@
+## 0.0.32
+* Android: request USB permission at read time and wait for the user's answer (no "Always allow" / USB_DEVICE_ATTACHED needed). New code 010 = permission denied.
+* Android: fix permission receiver leak, check grant result, register receiver as not exported.
 ## 0.0.7
 * improve filepath.
 ## 0.0.6

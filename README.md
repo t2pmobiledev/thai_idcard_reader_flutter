@@ -85,62 +85,19 @@ readCard({List<String> only = const []}) async {
 
 ```
 
-## Android USB Always Allow Permission
+## Android USB Permission
 
-By default, Android's USB permission dialog does **not** show the "Always allow from this app" checkbox. This means users must tap "Allow" every time they reconnect the USB smart card reader or relaunch the app.
+The plugin requests USB permission at read time. When `read()` is called and the reader has no permission yet, the plugin shows the system "Allow access" dialog and waits for the user's answer (up to 30 seconds) before reading the card. The permission lasts until the reader is unplugged; after that, the dialog is shown again on the next read.
 
-Android will show the "Always allow" checkbox only when the host app's `AndroidManifest.xml` declares an `<intent-filter>` for `android.hardware.usb.action.USB_DEVICE_ATTACHED` together with a `<meta-data>` pointing to a `device_filter.xml` that matches the connected USB device.
+The host app does **not** need a `USB_DEVICE_ATTACHED` intent-filter or a `device_filter.xml`. Without them Android shows no "Always allow / use by default" option and does not launch the app when the reader is plugged in.
 
-To enable this in your own app, follow the steps below.
+Response codes related to the reader and permission:
 
-### Step 1 — Create `res/xml/device_filter.xml`
-
-Create the file at `android/app/src/main/res/xml/device_filter.xml` (create the `xml/` folder if it does not exist):
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- ACS vendor-only entry: matches ALL ACS products (vendorId 1839 = 0x072F) -->
-    <usb-device vendor-id="1839" />
-
-    <!-- Specific ACS product entries -->
-    <usb-device vendor-id="1839" product-id="8704" />  <!-- ACR122U -->
-    <usb-device vendor-id="1839" product-id="8730" />  <!-- ACR1281U / ACR39U -->
-</resources>
-```
-
-> **Note:** `vendor-id` and `product-id` accept **decimal integers only** — do not use hex literals such as `0x072F`.
-
-### Step 2 — Update `AndroidManifest.xml`
-
-Inside your `MainActivity` `<activity>` element, add an `<intent-filter>` and a `<meta-data>` element:
-
-```xml
-<activity
-    android:name=".MainActivity"
-    android:launchMode="singleTop"
-    ...>
-
-    <!-- Existing intent-filter for app launch -->
-    <intent-filter>
-        <action android:name="android.intent.action.MAIN"/>
-        <category android:name="android.intent.category.LAUNCHER"/>
-    </intent-filter>
-
-    <!-- NEW: USB device attached intent-filter -->
-    <intent-filter>
-        <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
-    </intent-filter>
-
-    <!-- NEW: USB device filter reference -->
-    <meta-data
-        android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
-        android:resource="@xml/device_filter" />
-
-</activity>
-```
-
-Once both files are in place, Android will display the "Always allow from this app" checkbox in the USB permission dialog whenever a matching ACS reader is connected.
+| code | meaning |
+|------|---------|
+| `004` | No USB reader found, or it was unplugged while waiting for permission |
+| `009` | Permission not granted in time (dialog not answered within 30 s), or a request is already waiting |
+| `010` | User denied the USB permission dialog |
 
 ## Optional from `ThaiIdcardReaderFlutter.read()`
 

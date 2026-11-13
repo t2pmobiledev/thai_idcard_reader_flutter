@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.hardware.usb.*
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.annotation.NonNull
 import com.acs.smartcard.Reader
@@ -36,6 +38,14 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
   private var vendorSdkInfo: HashMap<String, Any>? = null
 
   private var retryCount: Int = 0;
+
+  // getInfo call waiting for the user to answer the USB permission dialog.
+  private var pendingPermissionResult: Result? = null
+  private val mainHandler = Handler(Looper.getMainLooper())
+
+  companion object {
+    private const val PERMISSION_TIMEOUT_MS = 30_000L
+  }
 
   // Card state listener
   private val cardStateListener = Reader.OnStateChangeListener { slotNum, prevState, currState ->
@@ -116,6 +126,10 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
 
   override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
     channel.setMethodCallHandler(null)
+    mainHandler.removeCallbacks(permissionTimeoutRunnable)
+    pendingPermissionResult = null
+    smartCardDevice?.stop()
+    smartCardDevice = null
     mReader?.setOnStateChangeListener(null)
     mReader?.close()
     mReader = null
@@ -138,56 +152,95 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
     }
   }
 
+  private fun respond(result: Result, code: String, message: String) {
+    val response = HashMap<String, Any>()
+    response.put("code", code)
+    response.put("message", message)
+    result.success(JSONObject(response).toString())
+  }
+
+  /** Takes the getInfo call waiting for the USB permission dialog (if any) and stops its timeout. */
+  private fun takePendingPermissionResult(): Result? {
+    val pending = pendingPermissionResult ?: return null
+    pendingPermissionResult = null
+    mainHandler.removeCallbacks(permissionTimeoutRunnable)
+    return pending
+  }
+
+  private val permissionTimeoutRunnable = Runnable {
+    takePendingPermissionResult()?.let {
+      respond(it, "009", "USB permission not granted. Please allow access to the card reader.")
+    }
+  }
+
+  private val smartCardDeviceEvent = object : SmartCardDevice.SmartCardDeviceEvent {
+    override fun OnReady(device: SmartCardDevice?) {
+      smartCardDevice = device
+      if (mReader?.isSupported(device?.device) ?: false) {
+        try {
+          mReader?.open(device?.device)
+          mReader?.setOnStateChangeListener(cardStateListener)
+        } catch (e: Exception) {
+          Log.w("ThaiIdcard", "Cannot open reader: ${e.toString()}")
+        }
+      }
+      // Permission granted while a getInfo call was waiting — continue reading.
+      takePendingPermissionResult()?.let { performRead(it) }
+    }
+
+    override fun OnDetached(device: SmartCardDevice?) {
+      smartCardDevice = null
+      mReader?.setOnStateChangeListener(null)
+      mReader?.close()
+      takePendingPermissionResult()?.let {
+        respond(it, "004", "Smart Card device not found")
+      }
+    }
+
+    override fun OnPermissionDenied(device: SmartCardDevice?) {
+      takePendingPermissionResult()?.let {
+        respond(it, "010", "USB permission denied")
+      }
+    }
+  }
+
   private fun readCardReader(result: Result) {
     try {
-      // Find the device and open it. When launched via USB_DEVICE_ATTACHED intent-filter,
-      // Android has already granted permission before the app starts, so
-      // SmartCardDevice.start() will call openDeviceWithPermission() directly
-      // without showing any dialog.
+      // The app no longer declares a USB_DEVICE_ATTACHED intent-filter, so Android does not
+      // grant permission on plug-in (and offers no "use by default" option). Permission is
+      // requested here at read time and is valid until the reader is unplugged.
       if (smartCardDevice == null) {
-        smartCardDevice = SmartCardDevice.getSmartCardDevice(
-          applicationContext!!,
-          "",
-          object : SmartCardDevice.SmartCardDeviceEvent {
-            override fun OnReady(device: SmartCardDevice?) {
-              smartCardDevice = device
-              if (mReader?.isSupported(device?.device) ?: false) {
-                try {
-                  mReader?.open(device?.device)
-                  mReader?.setOnStateChangeListener(cardStateListener)
-                } catch (e: Exception) {
-                  Log.w("ThaiIdcard", "Cannot open reader: ${e.toString()}")
-                }
-              }
-            }
-            override fun OnDetached(device: SmartCardDevice?) {
-              smartCardDevice = null
-              mReader?.setOnStateChangeListener(null)
-              mReader?.close()
-            }
-          })
+        smartCardDevice = SmartCardDevice.getSmartCardDevice(applicationContext!!, "", smartCardDeviceEvent)
       }
 
       if (smartCardDevice == null) {
-        val response = HashMap<String, Any>()
-        response.put("code", "004")
-        response.put("message", "Smart Card device not found")
-        result.success(JSONObject(response).toString())
+        respond(result, "004", "Smart Card device not found")
         return
       }
 
-      // If permission has not been granted yet (app was opened manually, not via USB intent),
-      // return a "permission required" response. The user should plug in the reader while
-      // the app is closed so Android shows the combined permission+open dialog,
-      // or grant permission via system settings.
       if (!smartCardDevice!!.havePermission) {
-        val response = HashMap<String, Any>()
-        response.put("code", "009")
-        response.put("message", "USB permission not granted. Please replug the reader.")
-        result.success(JSONObject(response).toString())
+        if (pendingPermissionResult != null) {
+          // A previous getInfo call is already waiting for the dialog.
+          respond(result, "009", "USB permission is being requested. Please allow access to the card reader.")
+          return
+        }
+        pendingPermissionResult = result
+        mainHandler.postDelayed(permissionTimeoutRunnable, PERMISSION_TIMEOUT_MS)
+        // Shows the system dialog (no-op if a request is already in flight).
+        // If permission is already granted, OnReady fires synchronously and resolves the call.
+        smartCardDevice!!.requestPermission()
         return
       }
 
+      performRead(result)
+    } catch (e: Exception) {
+      takePendingPermissionResult()
+      respond(result, "005", "${e.toString()}")
+    }
+  }
+
+  private fun performRead(result: Result) {
+    try {
       // Open ACS reader if supported but not yet opened
       if ((mReader?.isSupported(smartCardDevice!!.device) ?: false) && !(mReader?.isOpened ?: false)) {
         try {
