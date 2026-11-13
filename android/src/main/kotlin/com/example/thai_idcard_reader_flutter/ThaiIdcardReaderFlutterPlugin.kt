@@ -1,6 +1,10 @@
 package com.example.thai_idcard_reader_flutter
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import android.graphics.Bitmap
 import android.hardware.usb.*
 import android.os.Build
@@ -43,8 +47,24 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
   private var pendingPermissionResult: Result? = null
   private val mainHandler = Handler(Looper.getMainLooper())
 
+  // When true, a USB permission request is made as soon as a reader is plugged in
+  // (enabled by startPermissionWatch while the card-reading screen is open).
+  private var autoRequestOnAttach = false
+  private var attachReceiverRegistered = false
+
   companion object {
-    private const val PERMISSION_TIMEOUT_MS = 30_000L
+    // Must stay below the Dart-side getInfo timeout (20 s).
+    private const val PERMISSION_TIMEOUT_MS = 15_000L
+    private const val ATTACH_SETTLE_DELAY_MS = 500L
+  }
+
+  private val usbAttachReceiver = object : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+      if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED && autoRequestOnAttach) {
+        // Give the system a moment to finish enumerating the device before requesting.
+        mainHandler.postDelayed({ if (autoRequestOnAttach) ensurePermissionRequested() }, ATTACH_SETTLE_DELAY_MS)
+      }
+    }
   }
 
   // Card state listener
@@ -126,7 +146,8 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
 
   override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
     channel.setMethodCallHandler(null)
-    mainHandler.removeCallbacks(permissionTimeoutRunnable)
+    stopPermissionWatch()
+    mainHandler.removeCallbacksAndMessages(null)
     pendingPermissionResult = null
     smartCardDevice?.stop()
     smartCardDevice = null
@@ -142,6 +163,13 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
     when (call.method) {
       "getPlatformVersion" -> {
         result.success("Android ${Build.VERSION.RELEASE}")
+      }
+      "startPermissionWatch" -> {
+        result.success(startPermissionWatch())
+      }
+      "stopPermissionWatch" -> {
+        stopPermissionWatch()
+        result.success(null)
       }
       "getInfo" -> {
         retryCount = 0;
@@ -204,12 +232,68 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler {
     }
   }
 
+  /**
+   * Returns the cached reader, dropping it if it is no longer plugged in
+   * (e.g. unplugged before permission was granted, so no detach callback fired).
+   */
+  private fun currentSmartCardDevice(): SmartCardDevice? {
+    val cached = smartCardDevice ?: return null
+    val stillAttached = usbManager?.deviceList?.values?.any { it.deviceName == cached.device?.deviceName } ?: false
+    if (!stillAttached) {
+      cached.stop()
+      smartCardDevice = null
+    }
+    return smartCardDevice
+  }
+
+  /**
+   * Shows the USB permission dialog now if a reader is attached and not yet permitted.
+   * Returns "000" already granted, "009" dialog requested, "004" no reader attached.
+   */
+  private fun ensurePermissionRequested(): String {
+    val context = applicationContext ?: return "004"
+    if (currentSmartCardDevice() == null) {
+      smartCardDevice = SmartCardDevice.getSmartCardDevice(context, "", smartCardDeviceEvent)
+    }
+    val device = smartCardDevice ?: return "004"
+    if (device.havePermission) return "000"
+    device.requestPermission() // no-op while a request is already in flight
+    return if (device.havePermission) "000" else "009"
+  }
+
+  private fun startPermissionWatch(): String {
+    autoRequestOnAttach = true
+    val context = applicationContext
+    if (!attachReceiverRegistered && context != null) {
+      ContextCompat.registerReceiver(
+        context,
+        usbAttachReceiver,
+        IntentFilter(UsbManager.ACTION_USB_DEVICE_ATTACHED),
+        ContextCompat.RECEIVER_NOT_EXPORTED // system broadcasts are still delivered
+      )
+      attachReceiverRegistered = true
+    }
+    return ensurePermissionRequested()
+  }
+
+  private fun stopPermissionWatch() {
+    autoRequestOnAttach = false
+    if (attachReceiverRegistered) {
+      try {
+        applicationContext?.unregisterReceiver(usbAttachReceiver)
+      } catch (e: IllegalArgumentException) {
+        Log.w("ThaiIdcard", "USB attach receiver was not registered")
+      }
+      attachReceiverRegistered = false
+    }
+  }
+
   private fun readCardReader(result: Result) {
     try {
       // The app no longer declares a USB_DEVICE_ATTACHED intent-filter, so Android does not
       // grant permission on plug-in (and offers no "use by default" option). Permission is
       // requested here at read time and is valid until the reader is unplugged.
-      if (smartCardDevice == null) {
+      if (currentSmartCardDevice() == null) {
         smartCardDevice = SmartCardDevice.getSmartCardDevice(applicationContext!!, "", smartCardDeviceEvent)
       }
 

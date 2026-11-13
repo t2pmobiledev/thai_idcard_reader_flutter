@@ -87,7 +87,9 @@ readCard({List<String> only = const []}) async {
 
 ## Android USB Permission
 
-The plugin requests USB permission at read time. When `read()` is called and the reader has no permission yet, the plugin shows the system "Allow access" dialog and waits for the user's answer (up to 30 seconds) before reading the card. The permission lasts until the reader is unplugged; after that, the dialog is shown again on the next read.
+The plugin requests USB permission at read time. When `read()` is called and the reader has no permission yet, the plugin shows the system "Allow access" dialog and waits for the user's answer (up to 15 seconds) before reading the card.
+
+To ask earlier — before the user inserts the card — call `ThaiIdcardReaderFlutter.startPermissionWatch()` when the card-reading screen opens and `stopPermissionWatch()` when it closes. While watching, the dialog is shown immediately if a reader is attached and again whenever a reader is plugged in. (Android cannot detect card insertion until the reader is permitted, so the dialog is tied to the reader, not the card.) The permission lasts until the reader is unplugged; after that, the dialog is shown again on the next read.
 
 The host app does **not** need a `USB_DEVICE_ATTACHED` intent-filter or a `device_filter.xml`. Without them Android shows no "Always allow / use by default" option and does not launch the app when the reader is plugged in.
 
@@ -96,7 +98,7 @@ Response codes related to the reader and permission:
 | code | meaning |
 |------|---------|
 | `004` | No USB reader found, or it was unplugged while waiting for permission |
-| `009` | Permission not granted in time (dialog not answered within 30 s), or a request is already waiting |
+| `009` | Permission not granted in time (dialog not answered within 15 s), or a request is already waiting |
 | `010` | User denied the USB permission dialog |
 
 ## Optional from `ThaiIdcardReaderFlutter.read()`
