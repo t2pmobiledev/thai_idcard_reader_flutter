@@ -126,7 +126,7 @@ class ThaiADPU {
                                         0x79.toByte(),
                                         0x02.toByte(),
                                         0x00.toByte(),
-                                        0x64.toByte()
+                                        0xA0.toByte() // 160 bytes = full address field on Thai ID card
                         )
         val addressGetdata =
                         byteArrayOf(
@@ -134,14 +134,14 @@ class ThaiADPU {
                                         0xC0.toByte(),
                                         0x00.toByte(),
                                         0x00.toByte(),
-                                        0x64.toByte()
+                                        0xA0.toByte()
                         )
 
         val cardIssuer =
                         byteArrayOf(
                                         0x80.toByte(),
                                         0xB0.toByte(),
-                                        0x01.toByte(),
+                                        0x00.toByte(), // card issuer at 0x00F6 (was 0x01F6 = inside photo area)
                                         0xF6.toByte(),
                                         0x02.toByte(),
                                         0x00.toByte(),
@@ -375,6 +375,17 @@ class ThaiADPU {
                                                         0x02.toByte(),
                                                         0x00.toByte(),
                                                         0xFF.toByte()
+                                        ),
+                                        // Last chunk: photo area is 5118 bytes (0x017B-0x1578),
+                                        // 20 x 255 = 5100, remaining 18 bytes (0x12) at 0x1567
+                                        byteArrayOf(
+                                                        0x80.toByte(),
+                                                        0xB0.toByte(),
+                                                        0x15.toByte(),
+                                                        0x67.toByte(),
+                                                        0x02.toByte(),
+                                                        0x00.toByte(),
+                                                        0x12.toByte()
                                         )
                         )
 
@@ -517,148 +528,37 @@ class ThaiADPU {
 
                 // Now select Storage Applet for reading personal data
                 setProtocol(r)
-                if ("cid" in reqList) {
-                        r.transmit(slotNum, cid, cid.size, respArray, respArray.size)
-                        responsLength =
-                                        r.transmit(
-                                                        slotNum,
-                                                        cidGetdata,
-                                                        cidGetdata.size,
-                                                        respArray,
-                                                        respArray.size
-                                        )
-                        byteArrayToHexString(respArray, 0, responsLength)?.let {
-                                response.put("cid", it)
-                        }
-                }
-                if ("nameTH" in reqList) {
-                        r.transmit(slotNum, nameTH, nameTH.size, respArray, respArray.size)
-                        responsLength =
-                                        r.transmit(
-                                                        slotNum,
-                                                        nameTHGetdata,
-                                                        nameTHGetdata.size,
-                                                        respArray,
-                                                        respArray.size
-                                        )
-                        byteArrayToHexString(respArray, 0, responsLength)?.let {
-                                response.put("nameTH", it)
-                        }
-                }
-                if ("nameEN" in reqList) {
-                        r.transmit(slotNum, nameEN, nameEN.size, respArray, respArray.size)
-                        responsLength =
-                                        r.transmit(
-                                                        slotNum,
-                                                        nameENGetdata,
-                                                        nameENGetdata.size,
-                                                        respArray,
-                                                        respArray.size
-                                        )
-                        byteArrayToHexString(respArray, 0, responsLength)?.let {
-                                response.put("nameEN", it)
-                        }
-                }
-                if ("birthdate" in reqList) {
-                        r.transmit(slotNum, birthdate, birthdate.size, respArray, respArray.size)
-                        responsLength =
-                                        r.transmit(
-                                                        slotNum,
-                                                        birthdateGetdata,
-                                                        birthdateGetdata.size,
-                                                        respArray,
-                                                        respArray.size
-                                        )
-                        byteArrayToHexString(respArray, 0, responsLength)?.let {
-                                response.put("birthdate", it)
-                        }
-                }
-                if ("gender" in reqList) {
-                        r.transmit(slotNum, gender, gender.size, respArray, respArray.size)
-                        responsLength =
-                                        r.transmit(
-                                                        slotNum,
-                                                        genderGetdata,
-                                                        genderGetdata.size,
-                                                        respArray,
-                                                        respArray.size
-                                        )
-                        byteArrayToHexString(respArray, 0, responsLength)?.let {
-                                response.put("gender", it)
-                        }
-                }
-                if ("address" in reqList) {
-                        r.transmit(slotNum, address, address.size, respArray, respArray.size)
-                        responsLength =
-                                        r.transmit(
-                                                        slotNum,
-                                                        addressGetdata,
-                                                        addressGetdata.size,
-                                                        respArray,
-                                                        respArray.size
-                                        )
-                        byteArrayToHexString(respArray, 0, responsLength)?.let {
-                                response.put("address", it)
-                        }
-                }
-                if ("cardIssuer" in reqList) {
-                        r.transmit(slotNum, cardIssuer, cardIssuer.size, respArray, respArray.size)
-                        responsLength =
-                                        r.transmit(
-                                                        slotNum,
-                                                        cardIssuerGetdata,
-                                                        cardIssuerGetdata.size,
-                                                        respArray,
-                                                        respArray.size
-                                        )
-                        byteArrayToHexString(respArray, 0, responsLength)?.let {
-                                response.put("cardIssuer", it)
-                        }
-                }
-                if ("issueDate" in reqList) {
-                        r.transmit(slotNum, issueDate, issueDate.size, respArray, respArray.size)
-                        responsLength =
-                                        r.transmit(
-                                                        slotNum,
-                                                        issueDateGetdata,
-                                                        issueDateGetdata.size,
-                                                        respArray,
-                                                        respArray.size
-                                        )
-                        byteArrayToHexString(respArray, 0, responsLength)?.let {
-                                response.put("issueDate", it)
-                        }
-                }
-                if ("expireDate" in reqList) {
-                        r.transmit(slotNum, expireDate, expireDate.size, respArray, respArray.size)
-                        responsLength =
-                                        r.transmit(
-                                                        slotNum,
-                                                        expireDateGetdata,
-                                                        expireDateGetdata.size,
-                                                        respArray,
-                                                        respArray.size
-                                        )
-                        byteArrayToHexString(respArray, 0, responsLength)?.let {
-                                response.put("expireDate", it)
-                        }
-                }
-                if ("bp1No" in reqList) {
-                        r.transmit(slotNum, bp1No, bp1No.size, respArray, respArray.size)
-                        responsLength =
-                                        r.transmit(
-                                                        slotNum,
-                                                        bp1NoGetdata,
-                                                        bp1NoGetdata.size,
-                                                        respArray,
-                                                        respArray.size
-                                        )
-                        byteArrayToHexString(respArray, 0, responsLength)?.let {
-                                response.put("bp1No", it)
+                // Text fields: (key, READ BINARY cmd, GET RESPONSE cmd).
+                // A field is only returned when the card answers SW 90 00, so a
+                // loose card / reader error yields a missing field instead of garbage.
+                val textFields: List<Triple<String, ByteArray, ByteArray>> =
+                                listOf(
+                                                Triple("cid", cid, cidGetdata),
+                                                Triple("nameTH", nameTH, nameTHGetdata),
+                                                Triple("nameEN", nameEN, nameENGetdata),
+                                                Triple("birthdate", birthdate, birthdateGetdata),
+                                                Triple("gender", gender, genderGetdata),
+                                                Triple("address", address, addressGetdata),
+                                                Triple("cardIssuer", cardIssuer, cardIssuerGetdata),
+                                                Triple("issueDate", issueDate, issueDateGetdata),
+                                                Triple("expireDate", expireDate, expireDateGetdata),
+                                                Triple("bp1No", bp1No, bp1NoGetdata)
+                                )
+                for ((key, readCmd, getCmd) in textFields) {
+                        if (key !in reqList) continue
+                        r.transmit(slotNum, readCmd, readCmd.size, respArray, respArray.size)
+                        responsLength = r.transmit(slotNum, getCmd, getCmd.size, respArray, respArray.size)
+                        if (isStatusOk(respArray, responsLength)) {
+                                byteArrayToHexString(respArray, 0, responsLength)?.let {
+                                        response.put(key, it)
+                                }
+                        } else {
+                                Log.w("ThaiADPU", "Read $key failed: unexpected status word")
                         }
                 }
                 if ("photo" in reqList) {
                         val buffer = ByteArrayOutputStream()
+                        var photoOk = true
                         for (i in photo.indices) {
                                 r.transmit(
                                                 slotNum,
@@ -667,18 +567,29 @@ class ThaiADPU {
                                                 respArray,
                                                 respArray.size
                                 )
+                                // GET RESPONSE Le must match this chunk's requested length
+                                // (0xFF for full chunks, 0x12 for the last one).
+                                val chunkGetdata = photoGetdata.copyOf()
+                                chunkGetdata[4] = photo[i][6]
                                 responsLength =
                                                 r.transmit(
                                                                 slotNum,
-                                                                photoGetdata,
-                                                                photoGetdata.size,
+                                                                chunkGetdata,
+                                                                chunkGetdata.size,
                                                                 respArray,
                                                                 respArray.size
                                                 )
+                                if (!isStatusOk(respArray, responsLength)) {
+                                        Log.w("ThaiADPU", "Read photo chunk $i failed: unexpected status word")
+                                        photoOk = false
+                                        break
+                                }
                                 buffer.write(respArray, 0, responsLength - 2)
                         }
-                        val photoBuffer: ByteArray = buffer.toByteArray()
-                        response["photo"] = photoBuffer
+                        // Do not return a partial / corrupted photo
+                        if (photoOk) {
+                                response["photo"] = buffer.toByteArray()
+                        }
                 }
                 if ("laserID" in reqList) {
                         try {
@@ -796,6 +707,12 @@ class ThaiADPU {
                 val response = ByteArray(300)
                 r.transmit(0, select, select.size, response, response.size)
         }
+
+        /** True when the APDU response ends with status word 90 00. */
+        private fun isStatusOk(resp: ByteArray, length: Int): Boolean =
+                        length >= 2 &&
+                                        resp[length - 2] == 0x90.toByte() &&
+                                        resp[length - 1] == 0x00.toByte()
 
         private fun byteArrayToHexString(input: ByteArray, index: Int, length: Int): String? {
                 var length = length

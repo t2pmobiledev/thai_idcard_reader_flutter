@@ -188,7 +188,9 @@ class ThaiIDCard {
             str.split('').where((ea) => ea != ' ').toList().join('');
         final rmHashtags =
             rmSpaces.split('#').where((ea) => ea != '').toList().join(' ');
-        return rmHashtags.substring(0, rmHashtags.length - 2);
+        // Native side pads the 2 stripped status bytes as NUL chars; remove them
+        // explicitly instead of blindly cutting the last 2 characters.
+        return rmHashtags.replaceAll('\u0000', '').trim();
       } else {
         return str.replaceAll(RegExp(r'\s+'), ' ');
       }
@@ -199,7 +201,9 @@ class ThaiIDCard {
         if (s!.contains('#')) {
           var parts = List.from(s.split('#').where((ea) => ea != ''));
           var sx = parts.sublist(2).join(' ');
-          return sx.substring(0, sx.length - 2);
+          // Name field is space-padded to 100 bytes and ends with 2 NUL chars
+          // (stripped status word) — remove both instead of cutting 2 chars.
+          return sx.replaceAll('\u0000', '').trim();
         } else {
           var parts = List.from(s.split(' ').where((ea) => ea != ''));
           var sx = parts.sublist(2).join(' ');
